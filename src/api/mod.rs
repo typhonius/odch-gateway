@@ -21,9 +21,7 @@ use crate::state::AppState;
 pub fn build_router(state: AppState) -> Router {
     // CORS configuration: deny all origins when none configured
     let cors = if state.config.server.cors_origins.is_empty() {
-        CorsLayer::new()
-            .allow_methods(Any)
-            .allow_headers(Any)
+        CorsLayer::new().allow_methods(Any).allow_headers(Any)
     } else {
         let origins: Vec<_> = state
             .config

@@ -11,8 +11,8 @@ use crate::webhook::manager::WebhookInput;
 /// Validate a webhook URL to prevent SSRF attacks.
 /// Rejects non-HTTP(S) schemes, localhost, and private/reserved IP ranges.
 fn validate_webhook_url(raw_url: &str) -> Result<(), AppError> {
-    let parsed = Url::parse(raw_url)
-        .map_err(|_| AppError::BadRequest("Invalid URL format".to_string()))?;
+    let parsed =
+        Url::parse(raw_url).map_err(|_| AppError::BadRequest("Invalid URL format".to_string()))?;
 
     // Must be http or https
     match parsed.scheme() {
