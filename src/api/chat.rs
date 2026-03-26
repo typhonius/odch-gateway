@@ -52,12 +52,18 @@ pub async fn get_chat_history(
 #[derive(Deserialize)]
 pub struct SendMessageRequest {
     pub message: String,
+    /// Optional nick to send as. When provided, the message is broadcast
+    /// via the admin port's `$DataToAll` command so it appears as that user.
+    /// Requires the admin port to be configured.
+    #[serde(default)]
+    pub nick: Option<String>,
 }
 
 /// POST /api/chat/message
 ///
 /// Send a chat message to the hub via NMDC protocol.
-/// The message is sent as the gateway bot user.
+/// Without `nick`: sends as the gateway bot user via NMDC client.
+/// With `nick`: spoofs as the given user via admin port `$DataToAll`.
 pub async fn send_message(
     State(state): State<AppState>,
     Json(body): Json<SendMessageRequest>,
@@ -71,21 +77,44 @@ pub async fn send_message(
         return Err(AppError::HubDisconnected);
     }
 
-    let nick = &state.config.hub.nickname;
-    // Sanitize message for NMDC protocol safety
     let safe_message = sanitize_nmdc(&body.message);
-    // NMDC public chat format: <nick> message|
-    let nmdc_cmd = format!("<{}> {}|", nick, safe_message);
 
-    state
-        .nmdc_tx
-        .send(nmdc_cmd)
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to send chat: {}", e)))?;
+    if let Some(ref nick) = body.nick {
+        // Send as another user via admin port $DataToAll
+        if state.config.admin.is_none() {
+            return Err(AppError::Internal(
+                "Admin port not configured; cannot send as other users".to_string(),
+            ));
+        }
+        let safe_nick = sanitize_nmdc(nick);
+        // $DataToAll <nick> message|  — hub strips the $DataToAll prefix
+        // and broadcasts the rest to all human clients.
+        let cmd = format!("$DataToAll <{}> {}|", safe_nick, safe_message);
+        state
+            .admin_tx
+            .send(cmd)
+            .await
+            .map_err(|e| AppError::Internal(format!("Failed to send chat: {}", e)))?;
 
-    Ok(Json(serde_json::json!({
-        "status": "sent",
-        "nick": nick,
-        "message": body.message,
-    })))
+        Ok(Json(serde_json::json!({
+            "status": "sent",
+            "nick": safe_nick,
+            "message": body.message,
+        })))
+    } else {
+        // Send as gateway bot via NMDC client
+        let nick = &state.config.hub.nickname;
+        let nmdc_cmd = format!("<{}> {}|", nick, safe_message);
+        state
+            .nmdc_tx
+            .send(nmdc_cmd)
+            .await
+            .map_err(|e| AppError::Internal(format!("Failed to send chat: {}", e)))?;
+
+        Ok(Json(serde_json::json!({
+            "status": "sent",
+            "nick": nick,
+            "message": body.message,
+        })))
+    }
 }
