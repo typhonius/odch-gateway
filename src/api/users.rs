@@ -42,7 +42,14 @@ pub async fn list_users(
     Query(params): Query<UsersQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     // Clone user data so the read lock is released before async DB queries.
-    let users: Vec<_> = state.hub_state.users.read().await.values().cloned().collect();
+    let users: Vec<_> = state
+        .hub_state
+        .users
+        .read()
+        .await
+        .values()
+        .cloned()
+        .collect();
 
     let mut result: Vec<OnlineUser> = Vec::new();
     for u in &users {
