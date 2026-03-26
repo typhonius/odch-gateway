@@ -3,6 +3,7 @@ pub mod chat;
 pub mod commands;
 pub mod hub;
 pub mod moderation;
+pub mod rate_limit;
 pub mod users;
 pub mod webhooks;
 pub mod websocket;
@@ -12,6 +13,7 @@ use axum::routing::{delete, get, post, put};
 use axum::Json;
 use axum::Router;
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::trace::TraceLayer;
 
 use crate::state::AppState;
 
@@ -37,8 +39,27 @@ pub fn build_router(state: AppState) -> Router {
             .allow_headers(Any)
     };
 
-    // Protected API routes (require API key)
-    let api_routes = Router::new()
+    // Rate limiter for write endpoints
+    let rate_limit_config = state.config.rate_limit.clone();
+    let requests_per_minute = rate_limit_config
+        .map(|c| c.requests_per_minute)
+        .unwrap_or(10);
+    let limiter = rate_limit::RateLimiter::new(requests_per_minute);
+
+    // Write endpoints (rate-limited)
+    let write_routes = Router::new()
+        .route("/chat/message", post(chat::send_message))
+        .route("/users/{nick}/kick", post(moderation::kick_user))
+        .route("/users/{nick}/ban", post(moderation::ban_user))
+        .route("/users/{nick}/gag", post(moderation::gag_user))
+        .route("/commands/{name}/execute", post(commands::execute_command))
+        .layer(middleware::from_fn_with_state(
+            limiter,
+            rate_limit::rate_limit_middleware,
+        ));
+
+    // Read endpoints (no rate limit)
+    let read_routes = Router::new()
         // Hub endpoints
         .route("/hub/info", get(hub::get_hub_info))
         .route("/hub/stats", get(hub::get_hub_stats))
@@ -48,26 +69,26 @@ pub fn build_router(state: AppState) -> Router {
         .route("/users/{nick}/history", get(users::get_user_history))
         // Chat endpoints
         .route("/chat/history", get(chat::get_chat_history))
-        .route("/chat/message", post(chat::send_message))
-        // Moderation endpoints
-        .route("/users/{nick}/kick", post(moderation::kick_user))
-        .route("/users/{nick}/ban", post(moderation::ban_user))
+        // Moderation (non-write)
         .route("/users/{nick}/ban", delete(moderation::unban_user))
-        .route("/users/{nick}/gag", post(moderation::gag_user))
         .route("/users/{nick}/gag", delete(moderation::ungag_user))
         // Command endpoints
         .route("/commands", get(commands::list_commands))
-        .route("/commands/{name}/execute", post(commands::execute_command))
         // Webhook endpoints
         .route("/webhooks", get(webhooks::list_webhooks))
         .route("/webhooks", post(webhooks::create_webhook))
         .route("/webhooks/{id}", put(webhooks::update_webhook))
-        .route("/webhooks/{id}", delete(webhooks::delete_webhook))
-        // Apply auth middleware to all /api/* routes
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            auth::require_api_key,
-        ));
+        .route("/webhooks/{id}", delete(webhooks::delete_webhook));
+
+    // Combine all API routes and apply auth middleware
+    let api_routes =
+        Router::new()
+            .merge(write_routes)
+            .merge(read_routes)
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth::require_api_key,
+            ));
 
     // WebSocket (uses query param auth, not middleware)
     let ws_route = Router::new().route("/ws", get(websocket::ws_handler));
@@ -79,6 +100,7 @@ pub fn build_router(state: AppState) -> Router {
         .nest("/api", api_routes)
         .merge(ws_route)
         .merge(health_route)
+        .layer(TraceLayer::new_for_http())
         .layer(cors)
         .with_state(state)
 }
@@ -129,6 +151,7 @@ mod tests {
                 api_keys: vec!["test-key".to_string()],
             },
             webhook: None,
+            rate_limit: None,
         };
         let (nmdc_tx, _) = tokio::sync::mpsc::channel(1);
         let (admin_tx, _) = tokio::sync::mpsc::channel(1);

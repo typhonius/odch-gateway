@@ -66,6 +66,7 @@ mod tests {
                 api_keys: vec!["valid-key-123".to_string()],
             },
             webhook: None,
+            rate_limit: None,
         };
         let (nmdc_tx, _) = tokio::sync::mpsc::channel(1);
         let (admin_tx, _) = tokio::sync::mpsc::channel(1);

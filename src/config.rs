@@ -8,6 +8,7 @@ pub struct AppConfig {
     pub database: Option<DatabaseConfig>,
     pub auth: AuthConfig,
     pub webhook: Option<WebhookConfig>,
+    pub rate_limit: Option<RateLimitConfig>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -67,6 +68,17 @@ pub struct WebhookConfig {
     pub max_webhooks: usize,
     #[serde(default = "default_storage_path")]
     pub storage_path: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct RateLimitConfig {
+    /// Maximum requests per minute per API key (default: 10).
+    #[serde(default = "default_requests_per_minute")]
+    pub requests_per_minute: u32,
+}
+
+fn default_requests_per_minute() -> u32 {
+    10
 }
 
 fn default_description() -> String {

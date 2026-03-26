@@ -31,3 +31,8 @@ retry_delay_secs = 5
 timeout_secs = 10
 max_webhooks = 50
 storage_path = "webhooks.json"
+
+[rate_limit]
+# Max requests per minute per API key on write endpoints
+# (chat/message, kick, ban, gag, commands/execute)
+requests_per_minute = 10

@@ -20,6 +20,9 @@ pub enum AppError {
 
     #[error("Bad request: {0}")]
     BadRequest(String),
+
+    #[error("Rate limit exceeded")]
+    RateLimited,
 }
 
 impl IntoResponse for AppError {
@@ -37,6 +40,10 @@ impl IntoResponse for AppError {
             ),
             AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
+            AppError::RateLimited => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "Rate limit exceeded".to_string(),
+            ),
         };
 
         let body = serde_json::json!({ "error": message });
