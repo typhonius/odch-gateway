@@ -135,10 +135,16 @@ async fn connect_and_run(
 
     info!("Connected to hub as {}", config.nickname);
 
-    // Send $MyINFO
+    // Send $MyINFO — version comes from Cargo.toml at compile time,
+    // not from config, so it can't be accidentally overridden.
     let myinfo = format!(
-        "$MyINFO $ALL {} {}<ODCH-GW V:0.1.0,M:A,H:1/0/0,S:5>$$${}\\x01${}${}$|",
-        config.nickname, config.description, config.speed, config.email, config.share_size
+        "$MyINFO $ALL {} {}<ODCH-GW V:{},M:A,H:1/0/0,S:5>$$${}\x01${}${}$|",
+        config.nickname,
+        config.description,
+        env!("CARGO_PKG_VERSION"),
+        config.speed,
+        config.email,
+        config.share_size
     );
     stream.write_all(myinfo.as_bytes()).await?;
 
