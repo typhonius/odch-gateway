@@ -1,23 +1,49 @@
-use r2d2::Pool;
-use r2d2_sqlite::SqliteConnectionManager;
+use sqlx::AnyPool;
 
-pub type DbPool = Pool<SqliteConnectionManager>;
+/// Wrapper around `sqlx::AnyPool` that tracks the backend type.
+#[derive(Clone)]
+pub struct DbPool {
+    pool: AnyPool,
+    postgres: bool,
+}
 
-/// Create a read-only SQLite connection pool.
+impl DbPool {
+    /// Access the underlying sqlx pool.
+    pub fn inner(&self) -> &AnyPool {
+        &self.pool
+    }
+
+    /// Returns `true` when connected to PostgreSQL.
+    pub fn is_postgres(&self) -> bool {
+        self.postgres
+    }
+}
+
+/// Create a connection pool from a database URL.
 ///
-/// The bot process owns writes; we only read.
-pub fn create_pool(path: &str) -> Result<DbPool, r2d2::Error> {
-    let manager =
-        SqliteConnectionManager::file(path).with_flags(rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY);
-    Pool::builder().max_size(4).build(manager)
+/// Accepts both SQLite (`sqlite:///path/to/db`) and PostgreSQL
+/// (`postgres://user:pass@host:port/db`) URLs.
+pub async fn create_pool(url: &str) -> Result<DbPool, sqlx::Error> {
+    sqlx::any::install_default_drivers();
+    let pool = sqlx::any::AnyPoolOptions::new()
+        .max_connections(4)
+        .connect(url)
+        .await?;
+    let postgres = url.starts_with("postgres");
+    Ok(DbPool { pool, postgres })
 }
 
 #[cfg(test)]
-pub(crate) fn create_test_pool() -> DbPool {
-    // In-memory DB needs read-write so we can create tables and seed data.
-    let manager = SqliteConnectionManager::memory();
-    Pool::builder()
-        .max_size(1)
-        .build(manager)
-        .expect("test pool")
+pub(crate) async fn create_test_pool() -> DbPool {
+    sqlx::any::install_default_drivers();
+    // In-memory SQLite needs max_connections=1 so all queries share one DB.
+    let pool = sqlx::any::AnyPoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .expect("test pool");
+    DbPool {
+        pool,
+        postgres: false,
+    }
 }

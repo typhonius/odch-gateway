@@ -48,7 +48,10 @@ pub struct AdminConfig {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct DatabaseConfig {
-    pub path: String,
+    /// Connection URL. Examples:
+    ///   sqlite:///path/to/odchbot.db?mode=ro
+    ///   postgres://user:pass@localhost:5432/odchbot
+    pub url: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
