@@ -15,6 +15,7 @@ use tracing_subscriber::EnvFilter;
 use crate::bus::EventBus;
 use crate::config::AppConfig;
 use crate::state::{AppState, HubState};
+use crate::webhook::manager::WebhookManager;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -39,12 +40,53 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let event_bus = Arc::new(EventBus::new(1024));
     let hub_state = Arc::new(HubState::new());
     let (nmdc_tx, nmdc_rx) = tokio::sync::mpsc::channel::<String>(256);
+    let (admin_tx, admin_rx) = tokio::sync::mpsc::channel::<String>(256);
 
-    let _app_state = AppState {
+    // Set up database pool (optional)
+    let db_pool = match &config.database {
+        Some(db_config) => match db::pool::create_pool(&db_config.path) {
+            Ok(pool) => {
+                tracing::info!("Database pool created for: {}", db_config.path);
+                Some(pool)
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to create database pool: {}. Continuing without DB.",
+                    e
+                );
+                None
+            }
+        },
+        None => {
+            tracing::info!("No database configured");
+            None
+        }
+    };
+
+    // Set up webhook manager
+    let webhook_config = config
+        .webhook
+        .clone()
+        .unwrap_or_else(|| crate::config::WebhookConfig {
+            max_retries: 3,
+            retry_delay_secs: 5,
+            timeout_secs: 10,
+            max_webhooks: 50,
+            storage_path: "webhooks.json".to_string(),
+        });
+    let webhook_manager = Arc::new(WebhookManager::new(
+        &webhook_config.storage_path,
+        webhook_config.max_webhooks,
+    ));
+
+    let app_state = AppState {
         config: config.clone(),
         event_bus: event_bus.clone(),
         hub_state: hub_state.clone(),
         nmdc_tx: Arc::new(nmdc_tx),
+        admin_tx: Arc::new(admin_tx),
+        db_pool,
+        webhook_manager: webhook_manager.clone(),
     };
 
     // Spawn NMDC client
@@ -55,7 +97,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         nmdc::client::run(hub_config, bus, state, nmdc_rx).await;
     });
 
-    // Event logger (temporary, for Phase 3 verification)
+    // Spawn admin client (if configured)
+    if let Some(admin_config) = config.admin.clone() {
+        let bus = event_bus.clone();
+        let state = hub_state.clone();
+        tokio::spawn(async move {
+            nmdc::admin::run(admin_config, bus, state, admin_rx).await;
+        });
+    } else {
+        tracing::info!("No admin port configured; moderation commands will be unavailable");
+    }
+
+    // Spawn webhook dispatcher
+    {
+        let wh_rx = event_bus.subscribe();
+        let wh_mgr = webhook_manager.clone();
+        let wh_cfg = webhook_config.clone();
+        tokio::spawn(async move {
+            webhook::delivery::run_dispatcher(wh_mgr, wh_rx, wh_cfg).await;
+        });
+    }
+
+    // Event logger
     let mut event_rx = event_bus.subscribe();
     tokio::spawn(async move {
         loop {
@@ -74,11 +137,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    tracing::info!("Gateway running. Press Ctrl+C to stop.");
+    // Build HTTP router and start server
+    let router = api::build_router(app_state);
 
-    // Wait for shutdown
-    tokio::signal::ctrl_c().await?;
-    tracing::info!("Shutting down...");
+    let bind_addr = &config.server.bind_address;
+    let listener = tokio::net::TcpListener::bind(bind_addr).await?;
+    tracing::info!("HTTP server listening on {}", bind_addr);
+
+    // Run until shutdown
+    axum::serve(listener, router)
+        .with_graceful_shutdown(async {
+            tokio::signal::ctrl_c()
+                .await
+                .expect("failed to listen for ctrl+c");
+            tracing::info!("Shutting down...");
+        })
+        .await?;
 
     Ok(())
 }

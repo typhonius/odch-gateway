@@ -4,6 +4,8 @@ use tokio::sync::RwLock;
 
 use crate::bus::EventBus;
 use crate::config::AppConfig;
+use crate::db::pool::DbPool;
+use crate::webhook::manager::WebhookManager;
 
 /// Live hub user info.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -51,4 +53,7 @@ pub struct AppState {
     pub event_bus: Arc<EventBus>,
     pub hub_state: Arc<HubState>,
     pub nmdc_tx: Arc<tokio::sync::mpsc::Sender<String>>,
+    pub admin_tx: Arc<tokio::sync::mpsc::Sender<String>>,
+    pub db_pool: Option<DbPool>,
+    pub webhook_manager: Arc<WebhookManager>,
 }
