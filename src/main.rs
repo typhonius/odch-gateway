@@ -61,7 +61,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         loop {
             match event_rx.recv().await {
                 Ok(event) => {
-                    tracing::info!("Event: {}", serde_json::to_string(&event).unwrap_or_default());
+                    tracing::info!(
+                        "Event: {}",
+                        serde_json::to_string(&event).unwrap_or_default()
+                    );
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                     tracing::warn!("Event bus lagged by {} events", n);

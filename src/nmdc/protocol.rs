@@ -69,24 +69,24 @@ pub enum NmdcMessage {
 pub fn parse_message(raw: &str) -> NmdcMessage {
     let msg = raw.trim_end_matches('|');
 
-    if msg.starts_with("$Lock ") {
-        parse_lock(msg)
-    } else if msg.starts_with("$Hello ") {
+    if let Some(rest) = msg.strip_prefix("$Lock ") {
+        parse_lock(rest)
+    } else if let Some(rest) = msg.strip_prefix("$Hello ") {
         NmdcMessage::Hello {
-            nick: msg[7..].to_string(),
+            nick: rest.to_string(),
         }
-    } else if msg.starts_with("$Quit ") {
+    } else if let Some(rest) = msg.strip_prefix("$Quit ") {
         NmdcMessage::Quit {
-            nick: msg[6..].to_string(),
+            nick: rest.to_string(),
         }
-    } else if msg.starts_with("$MyINFO $ALL ") {
-        parse_myinfo(msg)
-    } else if msg.starts_with("$HubName ") {
+    } else if let Some(rest) = msg.strip_prefix("$MyINFO $ALL ") {
+        parse_myinfo(rest)
+    } else if let Some(rest) = msg.strip_prefix("$HubName ") {
         NmdcMessage::HubName {
-            name: msg[9..].to_string(),
+            name: rest.to_string(),
         }
-    } else if msg.starts_with("$OpList ") {
-        let nicks = msg[8..]
+    } else if let Some(rest) = msg.strip_prefix("$OpList ") {
+        let nicks = rest
             .split("$$")
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string())
@@ -96,24 +96,28 @@ pub fn parse_message(raw: &str) -> NmdcMessage {
         NmdcMessage::GetPass
     } else if msg.starts_with("$ValidateDenide") {
         NmdcMessage::ValidateDenide
-    } else if msg.starts_with("$Supports ") {
-        let features = msg[10..].split_whitespace().map(|s| s.to_string()).collect();
+    } else if let Some(rest) = msg.strip_prefix("$Supports ") {
+        let features = rest.split_whitespace().map(|s| s.to_string()).collect();
         NmdcMessage::Supports { features }
-    } else if msg.starts_with("$NickList ") {
-        let nicks = msg[10..]
+    } else if let Some(rest) = msg.strip_prefix("$NickList ") {
+        let nicks = rest
             .split("$$")
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string())
             .collect();
         NmdcMessage::NickList { nicks }
-    } else if msg.starts_with("$To: ") {
-        parse_private_message(msg)
-    } else if msg.starts_with("$Event ") {
-        parse_event(msg)
-    } else if msg.starts_with("STATUS ") {
-        parse_status(msg)
-    } else if msg.starts_with("USER ") && msg.contains('|') {
-        parse_user_entry(msg)
+    } else if let Some(rest) = msg.strip_prefix("$To: ") {
+        parse_private_message(rest)
+    } else if let Some(rest) = msg.strip_prefix("$Event ") {
+        parse_event(rest)
+    } else if let Some(rest) = msg.strip_prefix("STATUS ") {
+        parse_status(rest)
+    } else if let Some(rest) = msg.strip_prefix("USER ") {
+        if rest.contains('|') {
+            parse_user_entry(rest)
+        } else {
+            NmdcMessage::Unknown(msg.to_string())
+        }
     } else if msg.starts_with('<') {
         parse_chat(msg)
     } else {
@@ -121,9 +125,8 @@ pub fn parse_message(raw: &str) -> NmdcMessage {
     }
 }
 
-fn parse_lock(msg: &str) -> NmdcMessage {
-    // $Lock EXTENDEDPROTOCOL_hub Pk=test
-    let rest = &msg[6..];
+fn parse_lock(rest: &str) -> NmdcMessage {
+    // rest = "EXTENDEDPROTOCOL_hub Pk=test"
     let (lock_str, pk) = if let Some(pos) = rest.find(" Pk=") {
         (&rest[..pos], Some(rest[pos + 4..].to_string()))
     } else {
@@ -135,9 +138,8 @@ fn parse_lock(msg: &str) -> NmdcMessage {
     }
 }
 
-fn parse_myinfo(msg: &str) -> NmdcMessage {
-    // $MyINFO $ALL nick description<tag>$ $speed\x01$email$share$
-    let rest = &msg[13..]; // skip "$MyINFO $ALL "
+fn parse_myinfo(rest: &str) -> NmdcMessage {
+    // rest = "nick description<tag>$ $speed\x01$email$share$"
     let nick_end = rest.find(' ').unwrap_or(rest.len());
     let nick = rest[..nick_end].to_string();
 
@@ -192,9 +194,8 @@ fn parse_chat(msg: &str) -> NmdcMessage {
     }
 }
 
-fn parse_private_message(msg: &str) -> NmdcMessage {
-    // $To: target From: sender $<sender> message
-    let rest = &msg[5..]; // skip "$To: "
+fn parse_private_message(rest: &str) -> NmdcMessage {
+    // rest = "target From: sender $<sender> message"
     if let Some(from_pos) = rest.find(" From: ") {
         let to = rest[..from_pos].to_string();
         let after_from = &rest[from_pos + 7..];
@@ -204,12 +205,11 @@ fn parse_private_message(msg: &str) -> NmdcMessage {
             return NmdcMessage::PrivateMessage { from, to, message };
         }
     }
-    NmdcMessage::Unknown(msg.to_string())
+    NmdcMessage::Unknown(format!("$To: {}", rest))
 }
 
-fn parse_event(msg: &str) -> NmdcMessage {
-    // $Event TYPE data
-    let rest = &msg[7..]; // skip "$Event "
+fn parse_event(rest: &str) -> NmdcMessage {
+    // rest = "TYPE data"
     if let Some(space) = rest.find(' ') {
         NmdcMessage::Event {
             event_type: rest[..space].to_string(),
@@ -223,9 +223,8 @@ fn parse_event(msg: &str) -> NmdcMessage {
     }
 }
 
-fn parse_status(msg: &str) -> NmdcMessage {
-    // STATUS key|value
-    let rest = &msg[7..]; // skip "STATUS "
+fn parse_status(rest: &str) -> NmdcMessage {
+    // rest = "key|value"
     if let Some(pipe) = rest.find('|') {
         NmdcMessage::Status {
             key: rest[..pipe].to_string(),
@@ -239,9 +238,8 @@ fn parse_status(msg: &str) -> NmdcMessage {
     }
 }
 
-fn parse_user_entry(msg: &str) -> NmdcMessage {
-    // USER nick|ip|share|type|desc|email|speed
-    let rest = &msg[5..]; // skip "USER "
+fn parse_user_entry(rest: &str) -> NmdcMessage {
+    // rest = "nick|ip|share|type|desc|email|speed"
     let parts: Vec<&str> = rest.split('|').collect();
     NmdcMessage::UserEntry {
         nick: parts.first().unwrap_or(&"").to_string(),
@@ -326,8 +324,9 @@ mod tests {
 
     #[test]
     fn test_parse_myinfo() {
-        let msg =
-            parse_message("$MyINFO $ALL TestUser Test Desc<TestClient>$$$LAN(T1)\x01$test@email.com$12345$|");
+        let msg = parse_message(
+            "$MyINFO $ALL TestUser Test Desc<TestClient>$$$LAN(T1)\x01$test@email.com$12345$|",
+        );
         match msg {
             NmdcMessage::MyInfo {
                 nick,

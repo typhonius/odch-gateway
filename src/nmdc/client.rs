@@ -22,10 +22,7 @@ pub async fn run(
     let max_delay = config.max_reconnect_delay_secs;
 
     loop {
-        info!(
-            "Connecting to hub at {}:{}...",
-            config.host, config.port
-        );
+        info!("Connecting to hub at {}:{}...", config.host, config.port);
 
         match connect_and_run(&config, &event_bus, &hub_state, &mut cmd_rx).await {
             Ok(()) => {
@@ -187,11 +184,7 @@ async fn connect_and_run(
     }
 }
 
-async fn handle_message(
-    msg: NmdcMessage,
-    event_bus: &EventBus,
-    hub_state: &HubState,
-) {
+async fn handle_message(msg: NmdcMessage, event_bus: &EventBus, hub_state: &HubState) {
     let now = chrono::Utc::now;
 
     match msg {
@@ -262,10 +255,7 @@ async fn handle_message(
                 timestamp: now(),
             });
         }
-        NmdcMessage::Event {
-            event_type,
-            data,
-        } => {
+        NmdcMessage::Event { event_type, data } => {
             // Admin port event stream
             match event_type.as_str() {
                 "JOIN" => {

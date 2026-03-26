@@ -27,12 +27,14 @@ impl IntoResponse for AppError {
         let (status, message) = match &self {
             AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
             AppError::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()),
-            AppError::HubDisconnected => {
-                (StatusCode::SERVICE_UNAVAILABLE, "Hub not connected".to_string())
-            }
-            AppError::Database(e) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {e}"))
-            }
+            AppError::HubDisconnected => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Hub not connected".to_string(),
+            ),
+            AppError::Database(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Database error: {e}"),
+            ),
             AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
         };
