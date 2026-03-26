@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 description = "REST/WebSocket API gateway for OpenDCHub"
 license = "MIT"
+repository = "https://github.com/typhonius/odch-gateway"
+homepage = "https://github.com/typhonius/odch-gateway"
+readme = "README.md"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
