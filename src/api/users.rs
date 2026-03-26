@@ -41,34 +41,33 @@ pub async fn list_users(
     State(state): State<AppState>,
     Query(params): Query<UsersQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let users = state.hub_state.users.read().await;
+    // Clone user data so the read lock is released before async DB queries.
+    let users: Vec<_> = state.hub_state.users.read().await.values().cloned().collect();
 
-    let mut result: Vec<OnlineUser> = users
-        .values()
-        .map(|u| {
-            let mut online_user = OnlineUser {
-                nick: u.nick.clone(),
-                description: u.description.clone(),
-                speed: u.speed.clone(),
-                email: u.email.clone(),
-                share: u.share,
-                is_op: u.is_op,
-                online: true,
-                connect_time: None,
-                permissions: None,
-            };
+    let mut result: Vec<OnlineUser> = Vec::new();
+    for u in &users {
+        let mut online_user = OnlineUser {
+            nick: u.nick.clone(),
+            description: u.description.clone(),
+            speed: u.speed.clone(),
+            email: u.email.clone(),
+            share: u.share,
+            is_op: u.is_op,
+            online: true,
+            connect_time: None,
+            permissions: None,
+        };
 
-            // Enrich from DB if available
-            if let Some(ref pool) = state.db_pool {
-                if let Ok(Some(db_user)) = queries::get_user(pool, &u.nick) {
-                    online_user.connect_time = db_user.connect_time;
-                    online_user.permissions = Some(db_user.permissions);
-                }
+        // Enrich from DB if available
+        if let Some(ref pool) = state.db_pool {
+            if let Ok(Some(db_user)) = queries::get_user(pool, &u.nick).await {
+                online_user.connect_time = db_user.connect_time;
+                online_user.permissions = Some(db_user.permissions);
             }
+        }
 
-            online_user
-        })
-        .collect();
+        result.push(online_user);
+    }
 
     // Sort by nick for consistent ordering
     result.sort_by(|a, b| a.nick.cmp(&b.nick));
@@ -95,15 +94,16 @@ pub async fn get_user(
     Path(nick): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let users = state.hub_state.users.read().await;
-    let live_user = users.get(&nick);
+    let live_user = users.get(&nick).cloned();
+    drop(users);
 
     // Also look up DB record
-    let db_user = state
-        .db_pool
-        .as_ref()
-        .and_then(|pool| queries::get_user(pool, &nick).ok().flatten());
+    let db_user = match state.db_pool.as_ref() {
+        Some(pool) => queries::get_user(pool, &nick).await.ok().flatten(),
+        None => None,
+    };
 
-    match (live_user, &db_user) {
+    match (live_user.as_ref(), &db_user) {
         (None, None) => Err(AppError::NotFound(format!("User '{}' not found", nick))),
         (Some(live), _) => {
             let mut response = serde_json::json!({
@@ -172,7 +172,7 @@ pub async fn get_user_history(
     let limit = params.limit.clamp(1, 500);
     let offset = params.offset.max(0);
 
-    let history = queries::get_user_chat_history(pool, &nick, limit, offset)?;
+    let history = queries::get_user_chat_history(pool, &nick, limit, offset).await?;
 
     Ok(Json(serde_json::json!({
         "nick": nick,

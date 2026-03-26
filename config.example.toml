@@ -20,7 +20,10 @@ port = 53696
 password = "CHANGE_ME_admin_password"
 
 [database]
-path = "/path/to/odchbot/logs/odchbot.db"
+# SQLite (read-only):
+url = "sqlite:///path/to/odchbot/logs/odchbot.db?mode=ro"
+# PostgreSQL:
+# url = "postgres://odchbot:password@localhost:5432/odchbot"
 
 [auth]
 api_keys = ["CHANGE_ME_your_secret_api_key"]

@@ -1,8 +1,10 @@
 use axum::extract::{Path, State};
 use axum::Json;
 use serde::Deserialize;
+use sqlx::{Column, Row};
 
 use crate::api::chat::sanitize_nmdc;
+use crate::db::queries;
 use crate::error::AppError;
 use crate::state::AppState;
 
@@ -16,37 +18,32 @@ pub async fn list_commands(
 ) -> Result<Json<serde_json::Value>, AppError> {
     // Try to read commands from DB if available
     if let Some(ref pool) = state.db_pool {
-        let conn = pool.get().map_err(|e| AppError::Internal(e.to_string()))?;
-
-        // Check for a registry or commands table
-        let table = if has_table(&conn, "registry") {
+        let table = if queries::table_exists(pool, "registry").await {
             Some("registry")
-        } else if has_table(&conn, "commands") {
+        } else if queries::table_exists(pool, "commands").await {
             Some("commands")
         } else {
             None
         };
 
         if let Some(table_name) = table {
-            let sql = format!("SELECT * FROM {} ORDER BY rowid", table_name);
-            let mut stmt = conn.prepare(&sql)?;
-            let columns: Vec<String> = stmt.column_names().iter().map(|c| c.to_string()).collect();
-
-            let rows = stmt.query_map([], |row| {
-                let mut map = serde_json::Map::new();
-                for (i, col) in columns.iter().enumerate() {
-                    let val: rusqlite::Result<String> = row.get(i);
-                    map.insert(
-                        col.clone(),
-                        serde_json::Value::String(val.unwrap_or_default()),
-                    );
-                }
-                Ok(serde_json::Value::Object(map))
-            })?;
+            let sql = format!("SELECT * FROM {}", table_name);
+            let rows = sqlx::query(&sql).fetch_all(pool.inner()).await?;
 
             let mut commands = Vec::new();
-            for row in rows {
-                commands.push(row?);
+            for row in &rows {
+                let mut map = serde_json::Map::new();
+                for col in row.columns() {
+                    let val = if let Ok(s) = row.try_get::<String, _>(col.ordinal()) {
+                        serde_json::Value::String(s)
+                    } else if let Ok(n) = row.try_get::<i64, _>(col.ordinal()) {
+                        serde_json::Value::Number(n.into())
+                    } else {
+                        serde_json::Value::Null
+                    };
+                    map.insert(col.name().to_string(), val);
+                }
+                commands.push(serde_json::Value::Object(map));
             }
 
             return Ok(Json(serde_json::json!({
@@ -70,12 +67,6 @@ pub async fn list_commands(
         "commands": commands,
         "source": "static",
     })))
-}
-
-fn has_table(conn: &rusqlite::Connection, name: &str) -> bool {
-    conn.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1")
-        .and_then(|mut s| s.query_row(rusqlite::params![name], |r| r.get::<_, i64>(0)))
-        .is_ok()
 }
 
 #[derive(Deserialize)]

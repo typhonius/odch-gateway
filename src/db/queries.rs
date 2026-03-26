@@ -1,139 +1,89 @@
-use rusqlite::{params, Row};
-
 use crate::db::models::{ChatHistoryEntry, UserRecord, WatchdogEntry};
 use crate::db::pool::DbPool;
 use crate::error::AppError;
-
-// ---------------------------------------------------------------------------
-// Row mappers
-// ---------------------------------------------------------------------------
-
-fn map_user_row(row: &Row<'_>) -> rusqlite::Result<UserRecord> {
-    Ok(UserRecord {
-        nick: row.get("name")?,
-        ip: row.get("ip")?,
-        share: row.get("share")?,
-        description: row.get("description")?,
-        email: row.get("email")?,
-        speed: row.get("speed")?,
-        connect_time: row.get("connect_time")?,
-        disconnect_time: row.get("disconnect_time")?,
-        permissions: row.get("permission")?,
-    })
-}
-
-/// Map a history row.  The history table stores a `uid` foreign key, so we
-/// JOIN against `users` to resolve the nickname for the API consumer.
-fn map_chat_row(row: &Row<'_>) -> rusqlite::Result<ChatHistoryEntry> {
-    Ok(ChatHistoryEntry {
-        id: row.get("hid")?,
-        nickname: row.get("nickname")?,
-        chat: row.get("chat")?,
-        timestamp: row.get("time")?,
-    })
-}
-
-/// Map a watchdog/stats row.
-///
-/// v3 columns: wid, time, users, share
-/// v4 columns: sid, time, number_users, total_share
-///
-/// We use column aliases in the query so the mapper stays stable.
-fn map_watchdog_row(row: &Row<'_>) -> rusqlite::Result<WatchdogEntry> {
-    Ok(WatchdogEntry {
-        id: row.get("id")?,
-        users_online: row.get("users_online")?,
-        total_share: row.get("total_share")?,
-        timestamp: row.get("time")?,
-    })
-}
 
 // ---------------------------------------------------------------------------
 // Public query functions
 // ---------------------------------------------------------------------------
 
 /// Look up a single user by nickname.
-pub fn get_user(pool: &DbPool, nick: &str) -> Result<Option<UserRecord>, AppError> {
-    let conn = pool.get().map_err(|e| AppError::Internal(e.to_string()))?;
-    let mut stmt = conn.prepare(
+pub async fn get_user(pool: &DbPool, nick: &str) -> Result<Option<UserRecord>, AppError> {
+    let user = sqlx::query_as::<_, UserRecord>(
         "SELECT name, ip, share, description, email, speed, \
                 connect_time, disconnect_time, permission \
-         FROM users WHERE name = ?1",
-    )?;
+         FROM users WHERE name = $1",
+    )
+    .bind(nick)
+    .fetch_optional(pool.inner())
+    .await?;
 
-    let mut rows = stmt.query_map(params![nick], map_user_row)?;
-    match rows.next() {
-        Some(Ok(user)) => Ok(Some(user)),
-        Some(Err(e)) => Err(AppError::Database(e)),
-        None => Ok(None),
-    }
+    Ok(user)
 }
 
 /// List users ordered by most-recent login, with pagination.
-pub fn list_users(pool: &DbPool, limit: i64, offset: i64) -> Result<Vec<UserRecord>, AppError> {
-    let conn = pool.get().map_err(|e| AppError::Internal(e.to_string()))?;
-    let mut stmt = conn.prepare(
+pub async fn list_users(
+    pool: &DbPool,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<UserRecord>, AppError> {
+    let users = sqlx::query_as::<_, UserRecord>(
         "SELECT name, ip, share, description, email, speed, \
                 connect_time, disconnect_time, permission \
-         FROM users ORDER BY connect_time DESC LIMIT ?1 OFFSET ?2",
-    )?;
+         FROM users ORDER BY connect_time DESC LIMIT $1 OFFSET $2",
+    )
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool.inner())
+    .await?;
 
-    let rows = stmt.query_map(params![limit, offset], map_user_row)?;
-    let mut result = Vec::new();
-    for row in rows {
-        result.push(row?);
-    }
-    Ok(result)
+    Ok(users)
 }
 
 /// Return the most recent chat history lines (newest first), with pagination.
 ///
 /// The history table stores `uid` references, so we JOIN to get the nick.
-pub fn get_chat_history(
+pub async fn get_chat_history(
     pool: &DbPool,
     limit: i64,
     offset: i64,
 ) -> Result<Vec<ChatHistoryEntry>, AppError> {
-    let conn = pool.get().map_err(|e| AppError::Internal(e.to_string()))?;
-    let mut stmt = conn.prepare(
+    let history = sqlx::query_as::<_, ChatHistoryEntry>(
         "SELECT h.hid, u.name AS nickname, h.chat, h.time \
          FROM history h \
          JOIN users u ON u.uid = h.uid \
          ORDER BY h.hid DESC \
-         LIMIT ?1 OFFSET ?2",
-    )?;
+         LIMIT $1 OFFSET $2",
+    )
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool.inner())
+    .await?;
 
-    let rows = stmt.query_map(params![limit, offset], map_chat_row)?;
-    let mut result = Vec::new();
-    for row in rows {
-        result.push(row?);
-    }
-    Ok(result)
+    Ok(history)
 }
 
 /// Return chat history for a specific user (newest first), with pagination.
-pub fn get_user_chat_history(
+pub async fn get_user_chat_history(
     pool: &DbPool,
     nick: &str,
     limit: i64,
     offset: i64,
 ) -> Result<Vec<ChatHistoryEntry>, AppError> {
-    let conn = pool.get().map_err(|e| AppError::Internal(e.to_string()))?;
-    let mut stmt = conn.prepare(
+    let history = sqlx::query_as::<_, ChatHistoryEntry>(
         "SELECT h.hid, u.name AS nickname, h.chat, h.time \
          FROM history h \
          JOIN users u ON u.uid = h.uid \
-         WHERE u.name = ?1 \
+         WHERE u.name = $1 \
          ORDER BY h.hid DESC \
-         LIMIT ?2 OFFSET ?3",
-    )?;
+         LIMIT $2 OFFSET $3",
+    )
+    .bind(nick)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool.inner())
+    .await?;
 
-    let rows = stmt.query_map(params![nick, limit, offset], map_chat_row)?;
-    let mut result = Vec::new();
-    for row in rows {
-        result.push(row?);
-    }
-    Ok(result)
+    Ok(history)
 }
 
 /// Return recent hub snapshots from the stats table.
@@ -141,36 +91,44 @@ pub fn get_user_chat_history(
 /// Handles both v3 (`watchdog` table with `wid, users, share`) and
 /// v4 (`stats` table with `sid, number_users, total_share`) schemas by
 /// probing for the table that exists and aliasing columns.
-pub fn get_hub_stats(pool: &DbPool, limit: i64) -> Result<Vec<WatchdogEntry>, AppError> {
-    let conn = pool.get().map_err(|e| AppError::Internal(e.to_string()))?;
-
-    // Try v4 first, fall back to v3.
-    let sql = if table_exists(&conn, "stats") {
+pub async fn get_hub_stats(pool: &DbPool, limit: i64) -> Result<Vec<WatchdogEntry>, AppError> {
+    let sql = if table_exists(pool, "stats").await {
         "SELECT sid AS id, number_users AS users_online, \
                 total_share AS total_share, time \
-         FROM stats ORDER BY sid DESC LIMIT ?1"
-    } else if table_exists(&conn, "watchdog") {
+         FROM stats ORDER BY sid DESC LIMIT $1"
+    } else if table_exists(pool, "watchdog").await {
         "SELECT wid AS id, users AS users_online, \
                 share AS total_share, time \
-         FROM watchdog ORDER BY wid DESC LIMIT ?1"
+         FROM watchdog ORDER BY wid DESC LIMIT $1"
     } else {
         return Ok(Vec::new());
     };
 
-    let mut stmt = conn.prepare(sql)?;
-    let rows = stmt.query_map(params![limit], map_watchdog_row)?;
-    let mut result = Vec::new();
-    for row in rows {
-        result.push(row?);
-    }
-    Ok(result)
+    let stats = sqlx::query_as::<_, WatchdogEntry>(sql)
+        .bind(limit)
+        .fetch_all(pool.inner())
+        .await?;
+
+    Ok(stats)
 }
 
-/// Helper: check whether a table exists in the SQLite database.
-fn table_exists(conn: &rusqlite::Connection, name: &str) -> bool {
-    conn.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1")
-        .and_then(|mut s| s.query_row(params![name], |r| r.get::<_, i64>(0)))
-        .is_ok()
+/// Helper: check whether a table exists in the database.
+///
+/// Uses `sqlite_master` for SQLite and `information_schema.tables` for Postgres.
+pub async fn table_exists(pool: &DbPool, name: &str) -> bool {
+    let sql = if pool.is_postgres() {
+        "SELECT 1 FROM information_schema.tables WHERE table_name = $1"
+    } else {
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name = $1"
+    };
+
+    sqlx::query(sql)
+        .bind(name)
+        .fetch_optional(pool.inner())
+        .await
+        .ok()
+        .flatten()
+        .is_some()
 }
 
 // ---------------------------------------------------------------------------
@@ -182,11 +140,27 @@ mod tests {
     use super::*;
     use crate::db::pool::create_test_pool;
 
-    /// Set up the in-memory database with the v4 schema and some seed data.
-    fn seed_db(pool: &DbPool) {
-        let conn = pool.get().unwrap();
+    /// Execute multiple SQL statements separated by semicolons.
+    async fn execute_batch(pool: &DbPool, sql: &str) {
+        for statement in sql.split(';') {
+            let trimmed = statement.trim();
+            // Skip empty chunks and comment-only chunks
+            let has_sql = trimmed
+                .lines()
+                .any(|l| !l.trim().is_empty() && !l.trim().starts_with("--"));
+            if has_sql {
+                sqlx::query(trimmed)
+                    .execute(pool.inner())
+                    .await
+                    .unwrap_or_else(|e| panic!("batch exec failed on: {trimmed}\nerror: {e}"));
+            }
+        }
+    }
 
-        conn.execute_batch(
+    /// Set up the in-memory database with the v4 schema and some seed data.
+    async fn seed_db(pool: &DbPool) {
+        execute_batch(
+            pool,
             "CREATE TABLE users (
                 uid             INTEGER PRIMARY KEY AUTOINCREMENT,
                 name            TEXT    NOT NULL,
@@ -234,18 +208,17 @@ mod tests {
             -- Seed stats
             INSERT INTO stats (time, number_users, total_share) VALUES (1700000000, 3, 7168);
             INSERT INTO stats (time, number_users, total_share) VALUES (1700000060, 2, 3072);
-            INSERT INTO stats (time, number_users, total_share) VALUES (1700000120, 3, 7168);
-            ",
+            INSERT INTO stats (time, number_users, total_share) VALUES (1700000120, 3, 7168)",
         )
-        .expect("seed_db failed");
+        .await;
     }
 
-    #[test]
-    fn test_get_user_found() {
-        let pool = create_test_pool();
-        seed_db(&pool);
+    #[tokio::test]
+    async fn test_get_user_found() {
+        let pool = create_test_pool().await;
+        seed_db(&pool).await;
 
-        let user = get_user(&pool, "alice").unwrap();
+        let user = get_user(&pool, "alice").await.unwrap();
         assert!(user.is_some());
         let user = user.unwrap();
         assert_eq!(user.nick, "alice");
@@ -259,21 +232,21 @@ mod tests {
         assert_eq!(user.permissions, 8);
     }
 
-    #[test]
-    fn test_get_user_not_found() {
-        let pool = create_test_pool();
-        seed_db(&pool);
+    #[tokio::test]
+    async fn test_get_user_not_found() {
+        let pool = create_test_pool().await;
+        seed_db(&pool).await;
 
-        let user = get_user(&pool, "nonexistent").unwrap();
+        let user = get_user(&pool, "nonexistent").await.unwrap();
         assert!(user.is_none());
     }
 
-    #[test]
-    fn test_list_users_all() {
-        let pool = create_test_pool();
-        seed_db(&pool);
+    #[tokio::test]
+    async fn test_list_users_all() {
+        let pool = create_test_pool().await;
+        seed_db(&pool).await;
 
-        let users = list_users(&pool, 100, 0).unwrap();
+        let users = list_users(&pool, 100, 0).await.unwrap();
         assert_eq!(users.len(), 3);
         // Ordered by connect_time DESC: bob(1700000100), charlie(1700000050), alice(1700000000)
         assert_eq!(users[0].nick, "bob");
@@ -281,27 +254,27 @@ mod tests {
         assert_eq!(users[2].nick, "alice");
     }
 
-    #[test]
-    fn test_list_users_pagination() {
-        let pool = create_test_pool();
-        seed_db(&pool);
+    #[tokio::test]
+    async fn test_list_users_pagination() {
+        let pool = create_test_pool().await;
+        seed_db(&pool).await;
 
-        let page1 = list_users(&pool, 2, 0).unwrap();
+        let page1 = list_users(&pool, 2, 0).await.unwrap();
         assert_eq!(page1.len(), 2);
         assert_eq!(page1[0].nick, "bob");
         assert_eq!(page1[1].nick, "charlie");
 
-        let page2 = list_users(&pool, 2, 2).unwrap();
+        let page2 = list_users(&pool, 2, 2).await.unwrap();
         assert_eq!(page2.len(), 1);
         assert_eq!(page2[0].nick, "alice");
     }
 
-    #[test]
-    fn test_get_chat_history() {
-        let pool = create_test_pool();
-        seed_db(&pool);
+    #[tokio::test]
+    async fn test_get_chat_history() {
+        let pool = create_test_pool().await;
+        seed_db(&pool).await;
 
-        let history = get_chat_history(&pool, 10, 0).unwrap();
+        let history = get_chat_history(&pool, 10, 0).await.unwrap();
         assert_eq!(history.len(), 4);
         // Ordered by hid DESC (newest first)
         assert_eq!(history[0].nickname, "charlie");
@@ -312,44 +285,46 @@ mod tests {
         assert_eq!(history[3].chat, "Hello everyone!");
     }
 
-    #[test]
-    fn test_get_chat_history_pagination() {
-        let pool = create_test_pool();
-        seed_db(&pool);
+    #[tokio::test]
+    async fn test_get_chat_history_pagination() {
+        let pool = create_test_pool().await;
+        seed_db(&pool).await;
 
-        let page = get_chat_history(&pool, 2, 1).unwrap();
+        let page = get_chat_history(&pool, 2, 1).await.unwrap();
         assert_eq!(page.len(), 2);
         // Skip 1 (the newest), get next 2
         assert_eq!(page[0].chat, "How are you?");
         assert_eq!(page[1].chat, "Hi alice!");
     }
 
-    #[test]
-    fn test_get_user_chat_history() {
-        let pool = create_test_pool();
-        seed_db(&pool);
+    #[tokio::test]
+    async fn test_get_user_chat_history() {
+        let pool = create_test_pool().await;
+        seed_db(&pool).await;
 
-        let history = get_user_chat_history(&pool, "alice", 10, 0).unwrap();
+        let history = get_user_chat_history(&pool, "alice", 10, 0).await.unwrap();
         assert_eq!(history.len(), 2);
         assert_eq!(history[0].chat, "How are you?");
         assert_eq!(history[1].chat, "Hello everyone!");
     }
 
-    #[test]
-    fn test_get_user_chat_history_no_results() {
-        let pool = create_test_pool();
-        seed_db(&pool);
+    #[tokio::test]
+    async fn test_get_user_chat_history_no_results() {
+        let pool = create_test_pool().await;
+        seed_db(&pool).await;
 
-        let history = get_user_chat_history(&pool, "nonexistent", 10, 0).unwrap();
+        let history = get_user_chat_history(&pool, "nonexistent", 10, 0)
+            .await
+            .unwrap();
         assert!(history.is_empty());
     }
 
-    #[test]
-    fn test_get_hub_stats_v4() {
-        let pool = create_test_pool();
-        seed_db(&pool);
+    #[tokio::test]
+    async fn test_get_hub_stats_v4() {
+        let pool = create_test_pool().await;
+        seed_db(&pool).await;
 
-        let stats = get_hub_stats(&pool, 10).unwrap();
+        let stats = get_hub_stats(&pool, 10).await.unwrap();
         assert_eq!(stats.len(), 3);
         // Ordered by sid DESC (newest first)
         assert_eq!(stats[0].users_online, 3);
@@ -359,33 +334,28 @@ mod tests {
         assert_eq!(stats[1].total_share, 3072);
     }
 
-    #[test]
-    fn test_get_hub_stats_v3_fallback() {
-        let pool = create_test_pool();
+    #[tokio::test]
+    async fn test_get_hub_stats_v3_fallback() {
+        let pool = create_test_pool().await;
 
         // Create v3 watchdog table instead of v4 stats.
-        // The connection must be dropped before calling get_hub_stats,
-        // because the test pool has max_size=1.
-        {
-            let conn = pool.get().unwrap();
-            conn.execute_batch(
-                "CREATE TABLE watchdog (
-                    wid             INTEGER PRIMARY KEY AUTOINCREMENT,
-                    time            INTEGER,
-                    users           INTEGER,
-                    share           INTEGER,
-                    connections     INTEGER,
-                    disconnections  INTEGER,
-                    searches        INTEGER
-                );
-                INSERT INTO watchdog (time, users, share) VALUES (1700000000, 5, 9000);
-                INSERT INTO watchdog (time, users, share) VALUES (1700000060, 7, 12000);
-                ",
-            )
-            .unwrap();
-        }
+        execute_batch(
+            &pool,
+            "CREATE TABLE watchdog (
+                wid             INTEGER PRIMARY KEY AUTOINCREMENT,
+                time            INTEGER,
+                users           INTEGER,
+                share           INTEGER,
+                connections     INTEGER,
+                disconnections  INTEGER,
+                searches        INTEGER
+            );
+            INSERT INTO watchdog (time, users, share) VALUES (1700000000, 5, 9000);
+            INSERT INTO watchdog (time, users, share) VALUES (1700000060, 7, 12000)",
+        )
+        .await;
 
-        let stats = get_hub_stats(&pool, 10).unwrap();
+        let stats = get_hub_stats(&pool, 10).await.unwrap();
         assert_eq!(stats.len(), 2);
         // Ordered by wid DESC
         assert_eq!(stats[0].users_online, 7);
@@ -393,20 +363,20 @@ mod tests {
         assert_eq!(stats[1].users_online, 5);
     }
 
-    #[test]
-    fn test_get_hub_stats_no_table() {
-        let pool = create_test_pool();
+    #[tokio::test]
+    async fn test_get_hub_stats_no_table() {
+        let pool = create_test_pool().await;
         // Empty DB, no stats or watchdog table
-        let stats = get_hub_stats(&pool, 10).unwrap();
+        let stats = get_hub_stats(&pool, 10).await.unwrap();
         assert!(stats.is_empty());
     }
 
-    #[test]
-    fn test_get_hub_stats_limit() {
-        let pool = create_test_pool();
-        seed_db(&pool);
+    #[tokio::test]
+    async fn test_get_hub_stats_limit() {
+        let pool = create_test_pool().await;
+        seed_db(&pool).await;
 
-        let stats = get_hub_stats(&pool, 1).unwrap();
+        let stats = get_hub_stats(&pool, 1).await.unwrap();
         assert_eq!(stats.len(), 1);
         assert_eq!(stats[0].timestamp, 1700000120);
     }

@@ -44,9 +44,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Set up database pool (optional)
     let db_pool = match &config.database {
-        Some(db_config) => match db::pool::create_pool(&db_config.path) {
+        Some(db_config) => match db::pool::create_pool(&db_config.url).await {
             Ok(pool) => {
-                tracing::info!("Database pool created for: {}", db_config.path);
+                tracing::info!("Database pool created for: {}", db_config.url);
                 Some(pool)
             }
             Err(e) => {

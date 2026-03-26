@@ -59,7 +59,7 @@ pub async fn get_hub_stats(
         .ok_or_else(|| AppError::Internal("Database not configured".to_string()))?;
 
     let limit = params.limit.clamp(1, 1000);
-    let stats = queries::get_hub_stats(pool, limit)?;
+    let stats = queries::get_hub_stats(pool, limit).await?;
 
     Ok(Json(serde_json::json!({
         "stats": stats,

@@ -39,7 +39,7 @@ pub async fn get_chat_history(
     let limit = params.limit.clamp(1, 500);
     let offset = params.offset.max(0);
 
-    let history = queries::get_chat_history(pool, limit, offset)?;
+    let history = queries::get_chat_history(pool, limit, offset).await?;
 
     Ok(Json(serde_json::json!({
         "history": history,

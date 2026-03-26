@@ -13,7 +13,7 @@ pub enum AppError {
     HubDisconnected,
 
     #[error("Database error: {0}")]
-    Database(#[from] rusqlite::Error),
+    Database(#[from] sqlx::Error),
 
     #[error("Internal error: {0}")]
     Internal(String),
