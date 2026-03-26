@@ -19,10 +19,9 @@ use crate::state::AppState;
 
 /// Build the complete axum Router with all routes and middleware.
 pub fn build_router(state: AppState) -> Router {
-    // CORS configuration
+    // CORS configuration: deny all origins when none configured
     let cors = if state.config.server.cors_origins.is_empty() {
         CorsLayer::new()
-            .allow_origin(Any)
             .allow_methods(Any)
             .allow_headers(Any)
     } else {
@@ -51,8 +50,13 @@ pub fn build_router(state: AppState) -> Router {
         .route("/chat/message", post(chat::send_message))
         .route("/users/{nick}/kick", post(moderation::kick_user))
         .route("/users/{nick}/ban", post(moderation::ban_user))
+        .route("/users/{nick}/ban", delete(moderation::unban_user))
         .route("/users/{nick}/gag", post(moderation::gag_user))
+        .route("/users/{nick}/gag", delete(moderation::ungag_user))
         .route("/commands/{name}/execute", post(commands::execute_command))
+        .route("/webhooks", post(webhooks::create_webhook))
+        .route("/webhooks/{id}", put(webhooks::update_webhook))
+        .route("/webhooks/{id}", delete(webhooks::delete_webhook))
         .layer(middleware::from_fn_with_state(
             limiter,
             rate_limit::rate_limit_middleware,
@@ -69,16 +73,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/users/{nick}/history", get(users::get_user_history))
         // Chat endpoints
         .route("/chat/history", get(chat::get_chat_history))
-        // Moderation (non-write)
-        .route("/users/{nick}/ban", delete(moderation::unban_user))
-        .route("/users/{nick}/gag", delete(moderation::ungag_user))
         // Command endpoints
         .route("/commands", get(commands::list_commands))
-        // Webhook endpoints
-        .route("/webhooks", get(webhooks::list_webhooks))
-        .route("/webhooks", post(webhooks::create_webhook))
-        .route("/webhooks/{id}", put(webhooks::update_webhook))
-        .route("/webhooks/{id}", delete(webhooks::delete_webhook));
+        // Webhook endpoints (read-only)
+        .route("/webhooks", get(webhooks::list_webhooks));
 
     // Combine all API routes and apply auth middleware
     let api_routes =

@@ -5,10 +5,24 @@ use axum::response::Response;
 use crate::error::AppError;
 use crate::state::AppState;
 
+/// Constant-time byte comparison to prevent timing side-channel attacks.
+/// Always compares all bytes regardless of where differences occur.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 /// Middleware that validates the X-API-Key header against configured API keys.
 ///
 /// Extracts the AppState from request extensions and checks the API key.
 /// Returns 401 Unauthorized if the key is missing or invalid.
+/// Uses constant-time comparison to prevent timing side-channel attacks.
 pub async fn require_api_key(
     axum::extract::State(state): axum::extract::State<AppState>,
     request: Request,
@@ -20,8 +34,18 @@ pub async fn require_api_key(
         .and_then(|v| v.to_str().ok());
 
     match api_key {
-        Some(key) if state.config.auth.api_keys.contains(&key.to_string()) => {
-            Ok(next.run(request).await)
+        Some(key) => {
+            let key_matches = state
+                .config
+                .auth
+                .api_keys
+                .iter()
+                .any(|valid_key| constant_time_eq(key.as_bytes(), valid_key.as_bytes()));
+            if key_matches {
+                Ok(next.run(request).await)
+            } else {
+                Err(AppError::Unauthorized)
+            }
         }
         _ => Err(AppError::Unauthorized),
     }

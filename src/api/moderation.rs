@@ -2,8 +2,20 @@ use axum::extract::{Path, State};
 use axum::Json;
 use serde::Deserialize;
 
+use crate::api::chat::sanitize_nmdc;
 use crate::error::AppError;
 use crate::state::AppState;
+
+/// Validate that a nick extracted from the URL path does not contain
+/// NMDC protocol control characters (`|` or `$`).
+fn validate_nick(nick: &str) -> Result<(), AppError> {
+    if nick.contains('|') || nick.contains('$') {
+        return Err(AppError::BadRequest(
+            "Nick contains invalid characters".to_string(),
+        ));
+    }
+    Ok(())
+}
 
 #[derive(Deserialize)]
 pub struct KickRequest {
@@ -44,6 +56,7 @@ pub async fn kick_user(
     Path(nick): Path<String>,
     Json(body): Json<KickRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    validate_nick(&nick)?;
     require_admin(&state).await?;
 
     // Verify user is online
@@ -78,11 +91,12 @@ pub async fn ban_user(
     Path(nick): Path<String>,
     Json(body): Json<BanRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    validate_nick(&nick)?;
     require_admin(&state).await?;
 
-    // If an IP is provided, ban by IP; otherwise look up the user's nick to ban
+    // If an IP is provided, ban by IP (sanitized); otherwise look up the user's nick to ban
     let ban_target = if let Some(ref ip) = body.ip {
-        ip.clone()
+        sanitize_nmdc(ip)
     } else {
         nick.clone()
     };
@@ -109,6 +123,7 @@ pub async fn unban_user(
     State(state): State<AppState>,
     Path(nick): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    validate_nick(&nick)?;
     require_admin(&state).await?;
 
     let cmd = format!("$RemoveBanEntry {}|", nick);
@@ -132,6 +147,7 @@ pub async fn gag_user(
     Path(nick): Path<String>,
     Json(body): Json<GagRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    validate_nick(&nick)?;
     require_admin(&state).await?;
 
     let cmd = format!("$AddGagEntry {}|", nick);
@@ -155,6 +171,7 @@ pub async fn ungag_user(
     State(state): State<AppState>,
     Path(nick): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    validate_nick(&nick)?;
     require_admin(&state).await?;
 
     let cmd = format!("$RemoveGagEntry {}|", nick);

@@ -2,6 +2,7 @@ use axum::extract::{Path, State};
 use axum::Json;
 use serde::Deserialize;
 
+use crate::api::chat::sanitize_nmdc;
 use crate::error::AppError;
 use crate::state::AppState;
 
@@ -104,10 +105,11 @@ pub async fn execute_command(
     }
 
     let nick = &state.config.hub.nickname;
-    let command_text = if body.args.is_empty() {
+    let safe_args = sanitize_nmdc(&body.args);
+    let command_text = if safe_args.is_empty() {
         format!("-{}", name)
     } else {
-        format!("-{} {}", name, body.args)
+        format!("-{} {}", name, safe_args)
     };
 
     // Send as public chat

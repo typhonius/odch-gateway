@@ -17,13 +17,13 @@ max_reconnect_delay_secs = 300
 [admin]
 host = "127.0.0.1"
 port = 53696
-password = "admin_password"
+password = "CHANGE_ME_admin_password"
 
 [database]
 path = "/path/to/odchbot/logs/odchbot.db"
 
 [auth]
-api_keys = ["your-secret-key"]
+api_keys = ["CHANGE_ME_your_secret_api_key"]
 
 [webhook]
 max_retries = 3

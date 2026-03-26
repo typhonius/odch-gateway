@@ -6,6 +6,12 @@ use crate::db::queries;
 use crate::error::AppError;
 use crate::state::AppState;
 
+/// Sanitize user input for safe embedding in NMDC protocol commands.
+/// Strips pipe (command delimiter) and dollar sign (command prefix) characters.
+pub fn sanitize_nmdc(input: &str) -> String {
+    input.chars().filter(|c| *c != '|' && *c != '$').collect()
+}
+
 #[derive(Deserialize)]
 pub struct ChatHistoryQuery {
     #[serde(default = "default_limit")]
@@ -66,8 +72,10 @@ pub async fn send_message(
     }
 
     let nick = &state.config.hub.nickname;
+    // Sanitize message for NMDC protocol safety
+    let safe_message = sanitize_nmdc(&body.message);
     // NMDC public chat format: <nick> message|
-    let nmdc_cmd = format!("<{}> {}|", nick, body.message);
+    let nmdc_cmd = format!("<{}> {}|", nick, safe_message);
 
     state
         .nmdc_tx

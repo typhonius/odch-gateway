@@ -22,7 +22,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# Run as non-root user for security
+RUN groupadd --system gateway && useradd --system --gid gateway gateway
+
 COPY --from=builder /usr/src/odch-gateway/target/release/odch-gateway /usr/local/bin/odch-gateway
+
+USER gateway
 
 EXPOSE 3000
 

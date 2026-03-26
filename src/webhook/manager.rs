@@ -9,10 +9,15 @@ use uuid::Uuid;
 use crate::error::AppError;
 
 /// A registered webhook.
+///
+/// The `secret` field is excluded from serialization so it is never
+/// leaked in API responses. Disk persistence uses [`WebhookStorage`]
+/// which includes the secret.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Webhook {
     pub id: String,
     pub url: String,
+    #[serde(skip_serializing, default)]
     pub secret: String,
     pub events: Vec<String>,
     pub enabled: bool,
@@ -20,6 +25,48 @@ pub struct Webhook {
     pub description: String,
     #[serde(default = "chrono::Utc::now")]
     pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Private struct used only for disk persistence that includes the secret.
+#[derive(Serialize, Deserialize)]
+struct WebhookStorage {
+    id: String,
+    url: String,
+    secret: String,
+    events: Vec<String>,
+    enabled: bool,
+    #[serde(default)]
+    description: String,
+    #[serde(default = "chrono::Utc::now")]
+    created_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl From<&Webhook> for WebhookStorage {
+    fn from(w: &Webhook) -> Self {
+        Self {
+            id: w.id.clone(),
+            url: w.url.clone(),
+            secret: w.secret.clone(),
+            events: w.events.clone(),
+            enabled: w.enabled,
+            description: w.description.clone(),
+            created_at: w.created_at,
+        }
+    }
+}
+
+impl From<WebhookStorage> for Webhook {
+    fn from(s: WebhookStorage) -> Self {
+        Self {
+            id: s.id,
+            url: s.url,
+            secret: s.secret,
+            events: s.events,
+            enabled: s.enabled,
+            description: s.description,
+            created_at: s.created_at,
+        }
+    }
 }
 
 /// Request body for creating/updating a webhook.
@@ -72,8 +119,14 @@ impl WebhookManager {
 
     fn load_from_disk(path: &Path) -> Option<HashMap<String, Webhook>> {
         let data = std::fs::read_to_string(path).ok()?;
-        let hooks: Vec<Webhook> = serde_json::from_str(&data).ok()?;
-        let map = hooks.into_iter().map(|w| (w.id.clone(), w)).collect();
+        let hooks: Vec<WebhookStorage> = serde_json::from_str(&data).ok()?;
+        let map = hooks
+            .into_iter()
+            .map(|s| {
+                let w: Webhook = s.into();
+                (w.id.clone(), w)
+            })
+            .collect();
         Some(map)
     }
 
@@ -82,7 +135,7 @@ impl WebhookManager {
             return Ok(());
         }
         let hooks = self.webhooks.read().await;
-        let list: Vec<&Webhook> = hooks.values().collect();
+        let list: Vec<WebhookStorage> = hooks.values().map(WebhookStorage::from).collect();
         let json = serde_json::to_string_pretty(&list)
             .map_err(|e| AppError::Internal(format!("Serialize webhooks: {e}")))?;
         // Write atomically via temp file

@@ -34,10 +34,13 @@ impl IntoResponse for AppError {
                 StatusCode::SERVICE_UNAVAILABLE,
                 "Hub not connected".to_string(),
             ),
-            AppError::Database(e) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Database error: {e}"),
-            ),
+            AppError::Database(_e) => {
+                tracing::error!("Database error: {_e}");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "An internal database error occurred".to_string(),
+                )
+            }
             AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
             AppError::RateLimited => (
