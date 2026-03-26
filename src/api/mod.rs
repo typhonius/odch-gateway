@@ -46,15 +46,15 @@ pub fn build_router(state: AppState) -> Router {
     // Write endpoints (rate-limited)
     let write_routes = Router::new()
         .route("/chat/message", post(chat::send_message))
-        .route("/users/{nick}/kick", post(moderation::kick_user))
-        .route("/users/{nick}/ban", post(moderation::ban_user))
-        .route("/users/{nick}/ban", delete(moderation::unban_user))
-        .route("/users/{nick}/gag", post(moderation::gag_user))
-        .route("/users/{nick}/gag", delete(moderation::ungag_user))
-        .route("/commands/{name}/execute", post(commands::execute_command))
+        .route("/users/:nick/kick", post(moderation::kick_user))
+        .route("/users/:nick/ban", post(moderation::ban_user))
+        .route("/users/:nick/ban", delete(moderation::unban_user))
+        .route("/users/:nick/gag", post(moderation::gag_user))
+        .route("/users/:nick/gag", delete(moderation::ungag_user))
+        .route("/commands/:name/execute", post(commands::execute_command))
         .route("/webhooks", post(webhooks::create_webhook))
-        .route("/webhooks/{id}", put(webhooks::update_webhook))
-        .route("/webhooks/{id}", delete(webhooks::delete_webhook))
+        .route("/webhooks/:id", put(webhooks::update_webhook))
+        .route("/webhooks/:id", delete(webhooks::delete_webhook))
         .layer(middleware::from_fn_with_state(
             limiter,
             rate_limit::rate_limit_middleware,
@@ -67,8 +67,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/hub/stats", get(hub::get_hub_stats))
         // User endpoints
         .route("/users", get(users::list_users))
-        .route("/users/{nick}", get(users::get_user))
-        .route("/users/{nick}/history", get(users::get_user_history))
+        .route("/users/:nick", get(users::get_user))
+        .route("/users/:nick/history", get(users::get_user_history))
         // Chat endpoints
         .route("/chat/history", get(chat::get_chat_history))
         // Command endpoints
@@ -226,6 +226,35 @@ mod tests {
 
         let req = Request::builder()
             .uri("/api/users")
+            .header("X-API-Key", "test-key")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_api_user_by_nick() {
+        let state = test_state();
+
+        // Add a user to state
+        state.hub_state.users.write().await.insert(
+            "TestUser".to_string(),
+            crate::state::HubUser {
+                nick: "TestUser".to_string(),
+                description: "Test".to_string(),
+                speed: "LAN(T1)".to_string(),
+                email: "test@example.com".to_string(),
+                share: 1024,
+                is_op: false,
+            },
+        );
+
+        let app = build_router(state);
+
+        let req = Request::builder()
+            .uri("/api/users/TestUser")
             .header("X-API-Key", "test-key")
             .body(Body::empty())
             .unwrap();

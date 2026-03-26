@@ -93,12 +93,12 @@ pub async fn get_user_chat_history(
 /// probing for the table that exists and aliasing columns.
 pub async fn get_hub_stats(pool: &DbPool, limit: i64) -> Result<Vec<WatchdogEntry>, AppError> {
     let sql = if table_exists(pool, "stats").await {
-        "SELECT sid AS id, number_users AS users_online, \
-                total_share AS total_share, time \
+        "SELECT CAST(sid AS BIGINT) AS id, CAST(number_users AS BIGINT) AS users_online, \
+                CAST(total_share AS BIGINT) AS total_share, CAST(time AS BIGINT) AS time \
          FROM stats ORDER BY sid DESC LIMIT $1"
     } else if table_exists(pool, "watchdog").await {
-        "SELECT wid AS id, users AS users_online, \
-                share AS total_share, time \
+        "SELECT CAST(wid AS BIGINT) AS id, CAST(users AS BIGINT) AS users_online, \
+                CAST(share AS BIGINT) AS total_share, CAST(time AS BIGINT) AS time \
          FROM watchdog ORDER BY wid DESC LIMIT $1"
     } else {
         return Ok(Vec::new());
