@@ -26,6 +26,8 @@ pub async fn run(
 
         match connect_and_run(&config, &event_bus, &hub_state, &mut cmd_rx).await {
             Ok(()) => {
+                // Clean disconnect: reset backoff so the next failure starts fresh
+                delay = config.reconnect_delay_secs;
                 info!("Disconnected from hub cleanly");
             }
             Err(e) => {
@@ -193,27 +195,11 @@ async fn connect_and_run(
 async fn handle_message(msg: NmdcMessage, event_bus: &EventBus, hub_state: &HubState) {
     let now = chrono::Utc::now;
 
+    // Chat, UserJoin, UserQuit, and Kick come from the admin event stream when
+    // the admin client is configured. This handler only processes messages that
+    // are unique to the regular NMDC connection: user details, hub name, and op
+    // list updates. Handling those here avoids duplicates on the event bus.
     match msg {
-        NmdcMessage::Chat { nick, message } => {
-            event_bus.publish(HubEvent::Chat {
-                nick,
-                message,
-                timestamp: now(),
-            });
-        }
-        NmdcMessage::Hello { nick } => {
-            event_bus.publish(HubEvent::UserJoin {
-                nick,
-                timestamp: now(),
-            });
-        }
-        NmdcMessage::Quit { ref nick } => {
-            hub_state.users.write().await.remove(nick);
-            event_bus.publish(HubEvent::UserQuit {
-                nick: nick.clone(),
-                timestamp: now(),
-            });
-        }
         NmdcMessage::MyInfo {
             nick,
             description,
@@ -260,44 +246,6 @@ async fn handle_message(msg: NmdcMessage, event_bus: &EventBus, hub_state: &HubS
                 ops: nicks,
                 timestamp: now(),
             });
-        }
-        NmdcMessage::Event { event_type, data } => {
-            // Admin port event stream
-            match event_type.as_str() {
-                "JOIN" => {
-                    event_bus.publish(HubEvent::UserJoin {
-                        nick: data,
-                        timestamp: now(),
-                    });
-                }
-                "QUIT" => {
-                    hub_state.users.write().await.remove(&data);
-                    event_bus.publish(HubEvent::UserQuit {
-                        nick: data,
-                        timestamp: now(),
-                    });
-                }
-                "CHAT" => {
-                    if let Some(space) = data.find(' ') {
-                        event_bus.publish(HubEvent::Chat {
-                            nick: data[..space].to_string(),
-                            message: data[space + 1..].to_string(),
-                            timestamp: now(),
-                        });
-                    }
-                }
-                "KICK" => {
-                    let parts: Vec<&str> = data.splitn(2, ' ').collect();
-                    if parts.len() == 2 {
-                        event_bus.publish(HubEvent::Kick {
-                            nick: parts[0].to_string(),
-                            by: parts[1].to_string(),
-                            timestamp: now(),
-                        });
-                    }
-                }
-                _ => {}
-            }
         }
         _ => {}
     }

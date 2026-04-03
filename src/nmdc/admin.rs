@@ -44,6 +44,8 @@ pub async fn run(
 
         match connect_and_run(&config, &event_bus, &hub_state, &mut cmd_rx).await {
             Ok(()) => {
+                // Clean disconnect: reset backoff so the next failure starts fresh
+                delay = DEFAULT_RECONNECT_DELAY;
                 info!("Admin port disconnected cleanly");
             }
             Err(e) => {
@@ -188,6 +190,44 @@ async fn handle_admin_message(msg: NmdcMessage, event_bus: &EventBus, hub_state:
                             timestamp: now(),
                         });
                     }
+                }
+                "MYINFO" => {
+                    // The hub strips "$MyINFO $ALL " before emitting the event,
+                    // so data starts with the nick. Re-add the prefix so the
+                    // standard protocol parser can handle it.
+                    let synthetic = format!("$MyINFO $ALL {}|", data);
+                    if let NmdcMessage::MyInfo {
+                        nick,
+                        description,
+                        speed,
+                        email,
+                        share,
+                    } = protocol::parse_message(&synthetic)
+                    {
+                        let is_op = hub_state.ops.read().await.contains(&nick);
+                        hub_state.users.write().await.insert(
+                            nick.clone(),
+                            crate::state::HubUser {
+                                nick: nick.clone(),
+                                description: description.clone(),
+                                speed: speed.clone(),
+                                email: email.clone(),
+                                share,
+                                is_op,
+                            },
+                        );
+                        event_bus.publish(HubEvent::UserInfo {
+                            nick,
+                            description,
+                            speed,
+                            email,
+                            share,
+                            timestamp: now(),
+                        });
+                    }
+                }
+                "SEARCH" => {
+                    // Search events are informational only; no hub event type for them.
                 }
                 other => {
                     warn!("Unhandled admin event type: {} data={}", other, data);
