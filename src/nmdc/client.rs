@@ -230,6 +230,7 @@ async fn handle_message(msg: NmdcMessage, event_bus: &EventBus, hub_state: &HubS
                     email: email.clone(),
                     share,
                     is_op,
+                    is_bot: false,
                 },
             );
             event_bus.publish(HubEvent::UserInfo {

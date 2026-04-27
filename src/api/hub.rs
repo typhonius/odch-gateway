@@ -18,6 +18,7 @@ pub struct HubInfoResponse {
     pub hub_port: u16,
     pub tls_port: u16,
     pub max_users: u32,
+    pub bots: Vec<String>,
     pub gateway_version: &'static str,
 }
 
@@ -39,6 +40,11 @@ pub async fn get_hub_info(
     let tls_port = *state.hub_state.tls_port.read().await;
     let max_users = *state.hub_state.max_users.read().await;
 
+    let bots: Vec<String> = users.values()
+        .filter(|u| u.is_bot)
+        .map(|u| u.nick.clone())
+        .collect();
+
     Ok(Json(HubInfoResponse {
         hub_name,
         topic,
@@ -50,6 +56,7 @@ pub async fn get_hub_info(
         hub_port,
         tls_port,
         max_users,
+        bots,
         gateway_version: env!("CARGO_PKG_VERSION"),
     }))
 }

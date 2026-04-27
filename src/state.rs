@@ -17,6 +17,7 @@ pub struct HubUser {
     pub email: String,
     pub share: u64,
     pub is_op: bool,
+    pub is_bot: bool,
 }
 
 /// Live hub state.

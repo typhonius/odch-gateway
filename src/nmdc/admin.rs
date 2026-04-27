@@ -230,6 +230,9 @@ async fn handle_admin_message(msg: NmdcMessage, event_bus: &EventBus, hub_state:
                     } = protocol::parse_message(&synthetic)
                     {
                         let is_op = hub_state.ops.read().await.contains(&nick);
+                        // Preserve is_bot from existing entry if known
+                        let is_bot = hub_state.users.read().await
+                            .get(&nick).map(|u| u.is_bot).unwrap_or(false);
                         hub_state.users.write().await.insert(
                             nick.clone(),
                             crate::state::HubUser {
@@ -239,6 +242,7 @@ async fn handle_admin_message(msg: NmdcMessage, event_bus: &EventBus, hub_state:
                                 email: email.clone(),
                                 share,
                                 is_op,
+                                is_bot,
                             },
                         );
                         event_bus.publish(HubEvent::UserInfo {
@@ -316,7 +320,11 @@ async fn handle_admin_message(msg: NmdcMessage, event_bus: &EventBus, hub_state:
             let share_bytes = share.parse::<u64>().unwrap_or(0);
             let is_op = matches!(
                 user_type.as_str(),
-                "OP" | "OP_ADMIN" | "1" | "2"
+                "OP" | "OP_ADMIN" | "ADMIN" | "1" | "2"
+            );
+            let is_bot = matches!(
+                user_type.as_str(),
+                "SCRIPT" | "ADMIN"
             );
 
             hub_state.users.write().await.insert(
@@ -328,6 +336,7 @@ async fn handle_admin_message(msg: NmdcMessage, event_bus: &EventBus, hub_state:
                     email: email.clone(),
                     share: share_bytes,
                     is_op,
+                    is_bot,
                 },
             );
 
@@ -520,7 +529,7 @@ mod tests {
                 speed: String::new(),
                 email: String::new(),
                 share: 0,
-                is_op: false,
+                is_op: false, is_bot: false,
             },
         );
 

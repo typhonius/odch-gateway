@@ -242,7 +242,7 @@ mod tests {
                 speed: "LAN(T1)".to_string(),
                 email: "test@example.com".to_string(),
                 share: 1024,
-                is_op: false,
+                is_op: false, is_bot: false,
             },
         );
 
@@ -271,7 +271,7 @@ mod tests {
                 speed: "LAN(T1)".to_string(),
                 email: "test@example.com".to_string(),
                 share: 1024,
-                is_op: false,
+                is_op: false, is_bot: false,
             },
         );
 
