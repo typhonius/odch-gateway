@@ -6,13 +6,14 @@ WORKDIR /usr/src/odch-gateway
 # Pre-fetch dependencies by copying manifests first (layer caching)
 COPY Cargo.toml Cargo.lock* ./
 
-# Create a dummy main.rs to build dependencies
-RUN mkdir src && echo 'fn main() {}' > src/main.rs
+# Create a dummy main.rs and empty admin-ui to build dependencies
+RUN mkdir src && echo 'fn main() {}' > src/main.rs && mkdir -p admin-ui
 RUN cargo build --release 2>/dev/null || true
-RUN rm -rf src
+RUN rm -rf src admin-ui
 
-# Copy real source and build
+# Copy real source and static assets, then build
 COPY src/ src/
+COPY admin-ui/ admin-ui/
 RUN touch src/main.rs && cargo build --release
 
 # -- Runtime stage --
