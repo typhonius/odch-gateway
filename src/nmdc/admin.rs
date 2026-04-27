@@ -322,10 +322,7 @@ async fn handle_admin_message(msg: NmdcMessage, event_bus: &EventBus, hub_state:
                 user_type.as_str(),
                 "OP" | "OP_ADMIN" | "ADMIN" | "1" | "2"
             );
-            let is_bot = matches!(
-                user_type.as_str(),
-                "SCRIPT" | "ADMIN"
-            );
+            let is_bot = user_type == "SCRIPT";
 
             hub_state.users.write().await.insert(
                 nick.clone(),
