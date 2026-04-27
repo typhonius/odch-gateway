@@ -234,9 +234,16 @@ async fn handle_message(msg: NmdcMessage, event_bus: &EventBus, hub_state: &HubS
             });
         }
         NmdcMessage::HubName { name } => {
-            // $HubName contains "SHORT_NAME topic text" — extract the topic.
-            // The admin STATUS hub_name is authoritative for the actual hub name.
-            if let Some(space_pos) = name.find(' ') {
+            // The hub sends $HubName twice:
+            // 1. During handshake: the real hub name from config (e.g. "Chaotic Neutral")
+            // 2. After bot loads: "SHORT topic text" (e.g. "ODCH Welcome to the hub")
+            //
+            // We set hub_name only if it's empty (first time = real name).
+            // For subsequent messages, extract the topic portion.
+            let current = hub_state.hub_name.read().await.clone();
+            if current.is_empty() {
+                *hub_state.hub_name.write().await = name.clone();
+            } else if let Some(space_pos) = name.find(' ') {
                 *hub_state.topic.write().await = name[space_pos + 1..].to_string();
             }
             event_bus.publish(HubEvent::HubName {
