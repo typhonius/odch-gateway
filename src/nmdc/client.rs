@@ -235,17 +235,9 @@ async fn handle_message(msg: NmdcMessage, event_bus: &EventBus, hub_state: &HubS
         }
         NmdcMessage::HubName { name } => {
             // $HubName contains "SHORT_NAME topic text" — extract the topic.
-            // The admin STATUS hub_name is authoritative for the actual hub name,
-            // so we only use $HubName for the topic portion.
+            // The admin STATUS hub_name is authoritative for the actual hub name.
             if let Some(space_pos) = name.find(' ') {
-                let topic = name[space_pos + 1..].to_string();
-                *hub_state.topic.write().await = topic;
-            }
-            let current = hub_state.hub_name.read().await.clone();
-            if current.is_empty() {
-                // Fallback: use the short name part if admin port hasn't set hub_name yet
-                let short_name = name.split_whitespace().next().unwrap_or(&name).to_string();
-                *hub_state.hub_name.write().await = short_name;
+                *hub_state.topic.write().await = name[space_pos + 1..].to_string();
             }
             event_bus.publish(HubEvent::HubName {
                 name,
