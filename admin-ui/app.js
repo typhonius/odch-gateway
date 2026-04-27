@@ -109,11 +109,6 @@ function DashboardPage() {
 
   if (!info) return html`<p aria-busy="true">Loading...</p>`;
 
-  // Hub name may contain topic: "SHORT_NAME topic text"
-  const hubNameParts = (info.hub_name || '').split(' ');
-  const hubShortName = hubNameParts[0] || '\u2014';
-  const hubTopic = hubNameParts.length > 1 ? hubNameParts.slice(1).join(' ') : '';
-
   return html`
     <h2>Dashboard</h2>
     <div class="stat-grid">
@@ -126,11 +121,11 @@ function DashboardPage() {
         <div class="stat-label">Hub Status</div>
       </div>
       <div class="stat-card">
-        <div class="stat-value">${hubShortName}</div>
+        <div class="stat-value">${info.hub_name || '\u2014'}</div>
         <div class="stat-label">Hub Name</div>
       </div>
       <div class="stat-card">
-        <div class="stat-value" style="font-size: 1.2rem">${hubTopic || '\u2014'}</div>
+        <div class="stat-value" style="font-size: 1.2rem">${info.topic || '\u2014'}</div>
         <div class="stat-label">Topic</div>
       </div>
       <div class="stat-card">

@@ -22,6 +22,7 @@ pub struct HubUser {
 #[derive(Debug)]
 pub struct HubState {
     pub hub_name: RwLock<String>,
+    pub topic: RwLock<String>,
     pub users: RwLock<HashMap<String, HubUser>>,
     pub ops: RwLock<Vec<String>>,
     pub connected: RwLock<bool>,
@@ -32,6 +33,7 @@ impl HubState {
     pub fn new() -> Self {
         Self {
             hub_name: RwLock::new(String::new()),
+            topic: RwLock::new(String::new()),
             users: RwLock::new(HashMap::new()),
             ops: RwLock::new(Vec::new()),
             connected: RwLock::new(false),

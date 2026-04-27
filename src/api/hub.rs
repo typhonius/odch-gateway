@@ -9,6 +9,7 @@ use crate::state::AppState;
 #[derive(Serialize)]
 pub struct HubInfoResponse {
     pub hub_name: String,
+    pub topic: String,
     pub user_count: usize,
     pub op_count: usize,
     pub total_share: u64,
@@ -22,6 +23,7 @@ pub async fn get_hub_info(
     State(state): State<AppState>,
 ) -> Result<Json<HubInfoResponse>, AppError> {
     let hub_name = state.hub_state.hub_name.read().await.clone();
+    let topic = state.hub_state.topic.read().await.clone();
     let users = state.hub_state.users.read().await;
     let ops = state.hub_state.ops.read().await;
     let total_share = *state.hub_state.total_share.read().await;
@@ -29,6 +31,7 @@ pub async fn get_hub_info(
 
     Ok(Json(HubInfoResponse {
         hub_name,
+        topic,
         user_count: users.len(),
         op_count: ops.len(),
         total_share,

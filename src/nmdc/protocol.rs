@@ -166,6 +166,8 @@ fn parse_myinfo(rest: &str) -> NmdcMessage {
         .get(speed_idx)
         .unwrap_or(&"")
         .trim_end_matches('\x01')
+        .trim_end_matches('>')
+        .trim_start_matches('>')
         .to_string();
     let email = parts.get(speed_idx + 1).unwrap_or(&"").to_string();
     let share = parts
