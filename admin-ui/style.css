@@ -201,6 +201,38 @@ table .actions button {
   margin-bottom: 1.5rem;
 }
 
+.webhook-form fieldset {
+  border: 1px solid var(--pico-muted-border-color);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.webhook-form legend {
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 0 0.5rem;
+}
+
+.event-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+}
+
+.event-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  margin-bottom: 0;
+}
+
+.event-checkbox input[type="checkbox"] {
+  margin: 0;
+}
+
 /* Command execution */
 .command-card {
   background: var(--pico-card-background-color);

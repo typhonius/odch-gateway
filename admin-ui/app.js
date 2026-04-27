@@ -355,7 +355,8 @@ function CommandsPage({ showToast }) {
 function WebhooksPage({ showToast }) {
   const [webhooks, setWebhooks] = useState([]);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ url: '', events: '', description: '', secret: '' });
+  const VALID_EVENT_TYPES = ['Chat', 'UserJoin', 'UserQuit', 'UserInfo', 'HubName', 'OpListUpdate', 'Kick', 'GatewayStatus'];
+  const [form, setForm] = useState({ url: '', events: [], description: '', secret: '' });
 
   const loadWebhooks = useCallback(() => {
     api('/webhooks').then(data => setWebhooks(data.webhooks || [])).catch(() => {});
@@ -366,7 +367,7 @@ function WebhooksPage({ showToast }) {
   const createWebhook = async (e) => {
     e.preventDefault();
     try {
-      const events = form.events.trim() ? form.events.split(',').map(s => s.trim()) : [];
+      const events = form.events;
       await api('/webhooks', {
         method: 'POST',
         body: JSON.stringify({
@@ -376,7 +377,7 @@ function WebhooksPage({ showToast }) {
           secret: form.secret || undefined,
         }),
       });
-      setForm({ url: '', events: '', description: '', secret: '' });
+      setForm({ url: '', events: [], description: '', secret: '' });
       setShowForm(false);
       showToast('Webhook created', 'success');
       loadWebhooks();
@@ -408,11 +409,26 @@ function WebhooksPage({ showToast }) {
                  onInput=${e => setForm(f => ({ ...f, url: e.target.value }))}
                  placeholder="https://example.com/hook" />
         </label>
-        <label>Events (comma-separated, empty = all)
-          <input type="text" value=${form.events}
-                 onInput=${e => setForm(f => ({ ...f, events: e.target.value }))}
-                 placeholder="Chat, UserJoin, UserQuit" />
-        </label>
+        <fieldset>
+          <legend>Events (none selected = all)</legend>
+          <div class="event-checkboxes">
+            ${VALID_EVENT_TYPES.map(evt => html`
+              <label key=${evt} class="event-checkbox">
+                <input type="checkbox"
+                  checked=${form.events.includes(evt)}
+                  onChange=${(e) => {
+                    setForm(f => ({
+                      ...f,
+                      events: e.target.checked
+                        ? [...f.events, evt]
+                        : f.events.filter(x => x !== evt)
+                    }));
+                  }} />
+                ${evt}
+              </label>
+            `)}
+          </div>
+        </fieldset>
         <label>Description
           <input type="text" value=${form.description} required
                  onInput=${e => setForm(f => ({ ...f, description: e.target.value }))}
