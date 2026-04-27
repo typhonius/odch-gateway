@@ -264,10 +264,16 @@ function ChatPage({ showToast }) {
     if (!input.trim()) return;
     setSending(true);
     try {
-      await api('/chat/message', {
+      const resp = await api('/chat/message', {
         method: 'POST',
         body: JSON.stringify({ message: input }),
       });
+      // Optimistically add to local chat
+      setMessages(prev => [...prev, {
+        nickname: resp.nick || 'Admin',
+        chat: input,
+        timestamp: Math.floor(Date.now() / 1000),
+      }]);
       setInput('');
     } catch (err) {
       showToast(err.message, 'error');
@@ -283,7 +289,7 @@ function ChatPage({ showToast }) {
         ${messages.map((m, i) => html`
           <div class="chat-line" key=${i}>
             <span class="chat-time">${formatTime(m.timestamp)}</span>
-            <span class="chat-nick">&lt;${m.nickname}&gt;</span>
+            <span class="chat-nick">[${m.nickname}]</span>
             ${' '}${m.chat}
           </div>
         `)}
@@ -515,13 +521,11 @@ function App() {
     <div class="admin-layout">
       <div class="sidebar">
         <h2>ODCHub</h2>
-        <ul>
+        <div class="sidebar-nav">
           ${navItems.map(([href, label]) => html`
-            <li key=${href}>
-              <a href=${href} class=${route === href ? 'active' : ''}>${label}</a>
-            </li>
+            <a key=${href} href=${href} class=${route === href ? 'active' : ''}>${label}</a>
           `)}
-        </ul>
+        </div>
         <div class="nav-footer">
           <a href="#" onClick=${(e) => { e.preventDefault(); logout(); }}
              style="font-size: 0.85rem; color: var(--pico-muted-color)">Sign Out</a>

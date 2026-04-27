@@ -29,21 +29,13 @@
   border-bottom: 1px solid var(--pico-muted-border-color);
 }
 
-.sidebar ul {
-  all: unset;
-  display: block !important;
-  list-style: none;
-  padding: 0;
-  margin: 0;
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
 }
 
-.sidebar li {
-  all: unset;
-  display: block !important;
-  margin-bottom: 0.25rem;
-}
-
-.sidebar a {
+.sidebar-nav a {
   display: block;
   padding: 0.5rem 0.75rem;
   border-radius: 6px;
@@ -52,8 +44,8 @@
   font-size: 0.9rem;
 }
 
-.sidebar a:hover,
-.sidebar a.active {
+.sidebar-nav a:hover,
+.sidebar-nav a.active {
   background: var(--pico-primary-background);
   color: var(--pico-primary-inverse);
 }
