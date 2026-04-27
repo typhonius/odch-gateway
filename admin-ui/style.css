@@ -10,7 +10,8 @@
   min-height: 100vh;
 }
 
-nav.sidebar {
+/* Use div.sidebar to avoid Pico CSS nav overrides */
+.sidebar {
   width: 220px;
   background: var(--pico-card-background-color);
   border-right: 1px solid var(--pico-muted-border-color);
@@ -21,28 +22,24 @@ nav.sidebar {
   overflow-y: auto;
 }
 
-nav.sidebar h2 {
+.sidebar h2 {
   font-size: 1.1rem;
   margin-bottom: 1.5rem;
   padding-bottom: 0.75rem;
   border-bottom: 1px solid var(--pico-muted-border-color);
 }
 
-nav.sidebar ul {
+.sidebar ul {
   list-style: none;
   padding: 0;
   margin: 0;
-  display: flex;
-  flex-direction: column;
 }
 
-nav.sidebar li {
+.sidebar li {
   margin-bottom: 0.25rem;
-  display: block;
-  width: 100%;
 }
 
-nav.sidebar a {
+.sidebar a {
   display: block;
   padding: 0.5rem 0.75rem;
   border-radius: 6px;
@@ -51,13 +48,13 @@ nav.sidebar a {
   font-size: 0.9rem;
 }
 
-nav.sidebar a:hover,
-nav.sidebar a.active {
+.sidebar a:hover,
+.sidebar a.active {
   background: var(--pico-primary-background);
   color: var(--pico-primary-inverse);
 }
 
-nav.sidebar .nav-footer {
+.sidebar .nav-footer {
   position: absolute;
   bottom: 1rem;
   left: 1rem;
