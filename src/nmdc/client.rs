@@ -2,7 +2,7 @@ use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::bus::EventBus;
 use crate::config::HubConfig;
@@ -174,6 +174,14 @@ async fn connect_and_run(
                 }
 
                 partial.push_str(&String::from_utf8_lossy(&buf[..n]));
+
+                // Prevent unbounded growth from a malicious/broken hub
+                if partial.len() > 1_048_576 {
+                    warn!("Hub partial buffer exceeded 1MB, discarding");
+                    partial.clear();
+                    continue;
+                }
+
                 let (messages, remainder) = protocol::split_messages(&partial);
                 partial = remainder;
 

@@ -55,7 +55,13 @@ impl IntoResponse for AppError {
                     "An internal database error occurred".to_string(),
                 )
             }
-            AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
+            AppError::Internal(msg) => {
+                tracing::error!("Internal error: {msg}");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "An internal error occurred".to_string(),
+                )
+            }
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
             AppError::RateLimited => (
                 StatusCode::TOO_MANY_REQUESTS,

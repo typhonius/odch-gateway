@@ -213,9 +213,9 @@ pub async fn register_user(
     if body.password.is_empty() {
         return Err(AppError::BadRequest("Password cannot be empty".to_string()));
     }
-    if body.password.contains('|') || body.password.contains(' ') {
+    if body.password.contains('|') || body.password.contains(' ') || body.password.contains('$') {
         return Err(AppError::BadRequest(
-            "Password cannot contain pipe or space characters".to_string(),
+            "Password cannot contain pipe, space, or dollar characters".to_string(),
         ));
     }
     if body.reg_type > 3 {

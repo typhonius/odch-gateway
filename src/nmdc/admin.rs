@@ -139,6 +139,13 @@ async fn connect_and_run(
                 }
 
                 partial.push_str(&String::from_utf8_lossy(&buf[..n]));
+
+                if partial.len() > 1_048_576 {
+                    warn!("Admin partial buffer exceeded 1MB, discarding");
+                    partial.clear();
+                    continue;
+                }
+
                 let (messages, remainder) = protocol::split_admin_messages(&partial);
                 partial = remainder;
 

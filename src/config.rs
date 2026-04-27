@@ -1,6 +1,7 @@
 use serde::Deserialize;
+use std::fmt;
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Deserialize, Clone)]
 pub struct AppConfig {
     pub server: ServerConfig,
     pub hub: HubConfig,
@@ -40,14 +41,14 @@ pub struct HubConfig {
     pub max_reconnect_delay_secs: u64,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Deserialize, Clone)]
 pub struct AdminConfig {
     pub host: String,
     pub port: u16,
     pub password: String,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Deserialize, Clone)]
 pub struct DatabaseConfig {
     /// Connection URL. Examples:
     ///   sqlite:///path/to/odchbot.db?mode=ro
@@ -55,7 +56,7 @@ pub struct DatabaseConfig {
     pub url: String,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Deserialize, Clone)]
 pub struct AuthConfig {
     pub api_keys: Vec<String>,
 }
@@ -81,7 +82,7 @@ pub struct RateLimitConfig {
     pub requests_per_minute: u32,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Deserialize, Clone)]
 pub struct AdminUiConfig {
     pub bind_address: String,
     pub username: String,
@@ -125,6 +126,19 @@ fn default_max_webhooks() -> usize {
 }
 fn default_storage_path() -> String {
     "webhooks.json".to_string()
+}
+
+impl fmt::Debug for AppConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AppConfig")
+            .field("server", &self.server)
+            .field("hub", &format_args!("HubConfig {{ host: {:?}, port: {} }}", self.hub.host, self.hub.port))
+            .field("admin", &self.admin.as_ref().map(|a| format!("AdminConfig {{ host: {:?}, port: {} }}", a.host, a.port)))
+            .field("database", &"[REDACTED]")
+            .field("auth", &format!("[{} key(s)]", self.auth.api_keys.len()))
+            .field("admin_ui", &self.admin_ui.as_ref().map(|a| format!("AdminUiConfig {{ bind: {:?} }}", a.bind_address)))
+            .finish()
+    }
 }
 
 impl AppConfig {

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -58,4 +59,5 @@ pub struct AppState {
     pub admin_tx: Arc<tokio::sync::mpsc::Sender<String>>,
     pub db_pool: Option<DbPool>,
     pub webhook_manager: Arc<WebhookManager>,
+    pub ws_connections: Arc<AtomicUsize>,
 }

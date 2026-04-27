@@ -95,6 +95,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         admin_tx: Arc::new(admin_tx),
         db_pool,
         webhook_manager: webhook_manager.clone(),
+        ws_connections: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
     };
 
     // Spawn NMDC client

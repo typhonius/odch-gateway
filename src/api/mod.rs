@@ -182,6 +182,7 @@ mod tests {
             admin_tx: Arc::new(admin_tx),
             db_pool: None,
             webhook_manager: Arc::new(WebhookManager::in_memory(10)),
+            ws_connections: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         }
     }
 

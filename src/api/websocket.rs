@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket};
@@ -10,6 +11,9 @@ use tracing::{info, warn};
 
 use crate::event::HubEvent;
 use crate::state::AppState;
+
+/// Maximum concurrent WebSocket connections allowed.
+const MAX_WS_CONNECTIONS: usize = 100;
 
 #[derive(Deserialize)]
 pub struct WsQuery {
@@ -50,8 +54,6 @@ pub async fn ws_handler(
     let is_valid = has_api_key || has_valid_session;
 
     if !is_valid {
-        // We can't return an AppError from WebSocketUpgrade, so we accept
-        // the upgrade and immediately close with a reason.
         return ws.on_upgrade(|mut socket| async move {
             let _ = socket
                 .send(Message::Close(Some(axum::extract::ws::CloseFrame {
@@ -62,10 +64,29 @@ pub async fn ws_handler(
         });
     }
 
+    // Enforce connection limit
+    let current = state.ws_connections.load(Ordering::Relaxed);
+    if current >= MAX_WS_CONNECTIONS {
+        warn!("WebSocket connection limit reached ({}/{})", current, MAX_WS_CONNECTIONS);
+        return ws.on_upgrade(|mut socket| async move {
+            let _ = socket
+                .send(Message::Close(Some(axum::extract::ws::CloseFrame {
+                    code: 4002,
+                    reason: "Too many connections".into(),
+                })))
+                .await;
+        });
+    }
+
     let filters = parse_filters(&params.filter);
     let event_rx = state.event_bus.subscribe();
+    let ws_counter = state.ws_connections.clone();
+    ws_counter.fetch_add(1, Ordering::Relaxed);
 
-    ws.on_upgrade(move |socket| handle_socket(socket, event_rx, filters))
+    ws.on_upgrade(move |socket| async move {
+        handle_socket(socket, event_rx, filters).await;
+        ws_counter.fetch_sub(1, Ordering::Relaxed);
+    })
 }
 
 fn parse_filters(filter_str: &str) -> HashSet<String> {

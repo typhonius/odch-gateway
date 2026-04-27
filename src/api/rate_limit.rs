@@ -40,6 +40,12 @@ impl RateLimiter {
         let mut map = self.inner.lock().await;
         let now = Instant::now();
 
+        // Evict stale entries (idle for > 5 minutes) to prevent unbounded growth
+        if map.len() > 100 {
+            let stale_cutoff = std::time::Duration::from_secs(300);
+            map.retain(|_, b| now.duration_since(b.last_refill) < stale_cutoff);
+        }
+
         let bucket = map.entry(key.to_string()).or_insert(Bucket {
             tokens: self.max_tokens as f64,
             last_refill: now,
