@@ -37,15 +37,17 @@ pub async fn ws_handler(
     headers: axum::http::HeaderMap,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
-    // Validate: API key via query param OR session cookie (admin UI)
+    // Validate: API key via query param OR valid JWT session cookie (admin UI)
     let has_api_key = !params.api_key.is_empty()
         && state.config.auth.api_keys.contains(&params.api_key);
-    let has_session = headers
-        .get("cookie")
-        .and_then(|v| v.to_str().ok())
-        .map(|c| c.contains("session="))
-        .unwrap_or(false);
-    let is_valid = has_api_key || has_session;
+    let has_valid_session = state.config.admin_ui.as_ref().is_some_and(|ui_config| {
+        headers
+            .get("cookie")
+            .and_then(|v| v.to_str().ok())
+            .map(|c| crate::admin_ui::auth::validate_session_cookie(c, ui_config))
+            .unwrap_or(false)
+    });
+    let is_valid = has_api_key || has_valid_session;
 
     if !is_valid {
         // We can't return an AppError from WebSocketUpgrade, so we accept

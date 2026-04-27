@@ -60,16 +60,29 @@ fn validate_webhook_url(raw_url: &str) -> Result<(), AppError> {
     }
 
     // Resolve hostname and check all resolved IPs
+    // DNS resolution MUST succeed — if it fails, reject (prevents DNS rebinding
+    // where an initially-unresolvable host later resolves to a private IP)
     let port = parsed.port_or_known_default().unwrap_or(80);
     let addr_str = format!("{}:{}", host, port);
-    if let Ok(addrs) = addr_str.to_socket_addrs() {
-        for addr in addrs {
-            let ip = addr.ip();
-            if ip.is_loopback() || is_private_ip(&ip) {
-                return Err(AppError::BadRequest(
-                    "Webhook URL must not target private or reserved IP addresses".to_string(),
-                ));
-            }
+    let addrs: Vec<_> = addr_str
+        .to_socket_addrs()
+        .map_err(|_| {
+            AppError::BadRequest("Webhook URL hostname could not be resolved".to_string())
+        })?
+        .collect();
+
+    if addrs.is_empty() {
+        return Err(AppError::BadRequest(
+            "Webhook URL hostname resolved to no addresses".to_string(),
+        ));
+    }
+
+    for addr in &addrs {
+        let ip = addr.ip();
+        if ip.is_loopback() || is_private_ip(&ip) {
+            return Err(AppError::BadRequest(
+                "Webhook URL must not target private or reserved IP addresses".to_string(),
+            ));
         }
     }
 
@@ -95,9 +108,14 @@ fn is_private_ip(ip: &std::net::IpAddr) -> bool {
             || octets[0] == 0
         }
         std::net::IpAddr::V6(ipv6) => {
+            let segs = ipv6.segments();
             ipv6.is_loopback()
                 || ipv6.is_unspecified()
-                // IPv4-mapped IPv6 addresses - check the embedded IPv4
+                // fe80::/10 — link-local
+                || (segs[0] & 0xffc0) == 0xfe80
+                // fc00::/7 — unique local addresses (ULA, IPv6 equivalent of RFC1918)
+                || (segs[0] & 0xfe00) == 0xfc00
+                // IPv4-mapped IPv6 addresses (::ffff:x.x.x.x) — check the embedded IPv4
                 || {
                     if let Some(ipv4) = ipv6.to_ipv4_mapped() {
                         is_private_ip(&std::net::IpAddr::V4(ipv4))

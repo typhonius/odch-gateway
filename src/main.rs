@@ -48,7 +48,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db_pool = match &config.database {
         Some(db_config) => match db::pool::create_pool(&db_config.url).await {
             Ok(pool) => {
-                tracing::info!("Database pool created for: {}", db_config.url);
+                // Redact credentials from URL for logging
+                let safe_url = db_config
+                    .url
+                    .find('@')
+                    .map(|i| &db_config.url[i + 1..])
+                    .unwrap_or("configured");
+                tracing::info!("Database pool created for: {}", safe_url);
                 Some(pool)
             }
             Err(e) => {

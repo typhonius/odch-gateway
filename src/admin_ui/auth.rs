@@ -50,9 +50,9 @@ pub async fn login_handler(
     // Create JWT
     let token = create_token(&body.username, ui_config)?;
 
-    // Set httpOnly cookie
+    // Set httpOnly cookie with Secure flag
     let cookie = format!(
-        "session={}; HttpOnly; SameSite=Strict; Path=/; Max-Age={}",
+        "session={}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age={}",
         token,
         ui_config.session_expiry_hours * 3600
     );
@@ -108,6 +108,25 @@ pub async fn require_session(
     .map_err(|_| StatusCode::UNAUTHORIZED)?;
 
     Ok(next.run(request).await)
+}
+
+/// Validate a JWT session token. Returns true if valid.
+pub fn validate_session_token(token: &str, config: &AdminUiConfig) -> bool {
+    decode::<Claims>(
+        token,
+        &DecodingKey::from_secret(config.jwt_secret.as_bytes()),
+        &Validation::default(),
+    )
+    .is_ok()
+}
+
+/// Extract and validate the session token from a cookie header value.
+pub fn validate_session_cookie(cookie_header: &str, config: &AdminUiConfig) -> bool {
+    cookie_header
+        .split(';')
+        .find_map(|c| c.trim().strip_prefix("session="))
+        .map(|token| validate_session_token(token, config))
+        .unwrap_or(false)
 }
 
 fn create_token(username: &str, config: &AdminUiConfig) -> Result<String, AppError> {
