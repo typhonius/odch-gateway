@@ -325,8 +325,11 @@ async fn handle_admin_message(msg: NmdcMessage, event_bus: &EventBus, hub_state:
             email,
             speed,
         } => {
-            if nick.is_empty() || nick == "Administrator" {
-                // Skip empty nicks and the admin port session itself
+            if nick.is_empty() {
+                return;
+            }
+            // ADMIN type = admin port session (not a real user), skip it
+            if user_type == "ADMIN" {
                 return;
             }
 
