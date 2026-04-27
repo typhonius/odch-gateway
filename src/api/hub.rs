@@ -40,10 +40,12 @@ pub async fn get_hub_info(
     let tls_port = *state.hub_state.tls_port.read().await;
     let max_users = *state.hub_state.max_users.read().await;
 
-    let bots: Vec<String> = users.values()
+    // Bots: SCRIPT type users from $GetUserList (Dragon, OPChat, etc.)
+    let mut bots: Vec<String> = users.values()
         .filter(|u| u.is_bot)
         .map(|u| u.nick.clone())
         .collect();
+    bots.sort();
 
     Ok(Json(HubInfoResponse {
         hub_name,

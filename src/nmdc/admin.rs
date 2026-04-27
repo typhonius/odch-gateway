@@ -128,6 +128,12 @@ async fn connect_and_run(
     let setup = "$Set admin_events 1|$GetStatus|$GetUserList|";
     stream.write_all(setup.as_bytes()).await?;
 
+    // Schedule a delayed re-request for the user list — SCRIPT users may not
+    // have registered by the time the initial $GetUserList runs.
+    let mut refresh_delay = tokio::time::interval(std::time::Duration::from_secs(10));
+    refresh_delay.tick().await; // skip immediate tick
+    let mut refreshed = false;
+
     // ---- Phase 3: Main read loop ----
     loop {
         tokio::select! {
@@ -164,6 +170,12 @@ async fn connect_and_run(
                         return Ok(());
                     }
                 }
+            }
+            _ = refresh_delay.tick(), if !refreshed => {
+                // Re-request user list after scripts have had time to register
+                info!("Refreshing user list (delayed)");
+                stream.write_all(b"$GetUserList|").await?;
+                refreshed = true;
             }
         }
     }
@@ -313,7 +325,8 @@ async fn handle_admin_message(msg: NmdcMessage, event_bus: &EventBus, hub_state:
             email,
             speed,
         } => {
-            if nick.is_empty() {
+            if nick.is_empty() || nick == "Administrator" {
+                // Skip empty nicks and the admin port session itself
                 return;
             }
 
