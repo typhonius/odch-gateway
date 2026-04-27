@@ -121,7 +121,7 @@ function DashboardPage() {
         <div class="stat-label">Hub Status</div>
       </div>
       <div class="stat-card">
-        <div class="stat-value">${info.hub_name || 'N/A'}</div>
+        <div class="stat-value">${info.hub_name || '\u2014'}</div>
         <div class="stat-label">Hub Name</div>
       </div>
       <div class="stat-card">
