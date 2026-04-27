@@ -77,8 +77,8 @@ async fn connect_and_run(
     let mut got_lock = false;
     for raw in &messages {
         let msg = protocol::parse_message(raw);
-        if let NmdcMessage::Lock { lock, .. } = msg {
-            let key = lock_to_key(&lock);
+        if let NmdcMessage::Lock { lock, .. } = &msg {
+            let key = lock_to_key(lock);
             let key_str = String::from_utf8_lossy(&key);
 
             // Send handshake
@@ -88,7 +88,9 @@ async fn connect_and_run(
             );
             stream.write_all(handshake.as_bytes()).await?;
             got_lock = true;
-            break;
+        } else {
+            // Process other messages (e.g. $HubName) that arrive with $Lock
+            handle_message(msg, event_bus, hub_state).await;
         }
     }
 
@@ -126,7 +128,10 @@ async fn connect_and_run(
                 NmdcMessage::Hello { ref nick } if nick == &config.nickname => {
                     authenticated = true;
                 }
-                _ => {}
+                other => {
+                    // Process other messages (e.g. $HubName, $OpList) during handshake
+                    handle_message(other, event_bus, hub_state).await;
+                }
             }
         }
 
