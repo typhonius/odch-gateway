@@ -145,7 +145,7 @@ async fn connect_and_run(
     // Send $MyINFO — version comes from Cargo.toml at compile time,
     // not from config, so it can't be accidentally overridden.
     let myinfo = format!(
-        "$MyINFO $ALL {} {}<ODCH-GW V:{},M:A,H:1/0/0,S:5>$$${}\x01${}${}$|",
+        "$MyINFO $ALL {} {}<ODCH-GW V:{},M:A,H:1/0/0,S:5>$ ${}\x01${}${}$|",
         config.nickname,
         config.description,
         env!("CARGO_PKG_VERSION"),
