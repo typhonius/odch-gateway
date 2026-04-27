@@ -8,6 +8,30 @@ use crate::error::AppError;
 use crate::state::AppState;
 use crate::webhook::manager::WebhookInput;
 
+const VALID_EVENT_TYPES: &[&str] = &[
+    "Chat",
+    "UserJoin",
+    "UserQuit",
+    "UserInfo",
+    "HubName",
+    "OpListUpdate",
+    "Kick",
+    "GatewayStatus",
+];
+
+fn validate_event_types(events: &[String]) -> Result<(), AppError> {
+    for event in events {
+        if !VALID_EVENT_TYPES.contains(&event.as_str()) {
+            return Err(AppError::BadRequest(format!(
+                "Unknown event type '{}'. Valid types: {}",
+                event,
+                VALID_EVENT_TYPES.join(", ")
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Validate a webhook URL to prevent SSRF attacks.
 /// Rejects non-HTTP(S) schemes, localhost, and private/reserved IP ranges.
 fn validate_webhook_url(raw_url: &str) -> Result<(), AppError> {
@@ -109,6 +133,9 @@ pub async fn create_webhook(
         return Err(AppError::BadRequest("URL is required".to_string()));
     }
     validate_webhook_url(&body.url)?;
+    if !body.events.is_empty() {
+        validate_event_types(&body.events)?;
+    }
 
     let webhook = state.webhook_manager.create(body).await?;
 
@@ -129,6 +156,9 @@ pub async fn update_webhook(
         return Err(AppError::BadRequest("URL is required".to_string()));
     }
     validate_webhook_url(&body.url)?;
+    if !body.events.is_empty() {
+        validate_event_types(&body.events)?;
+    }
 
     let webhook = state.webhook_manager.update(&id, body).await?;
 
@@ -150,4 +180,38 @@ pub async fn delete_webhook(
         "status": "deleted",
         "id": id,
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_invalid_event_type_rejected() {
+        let events = vec!["Chat".to_string(), "InvalidType".to_string()];
+        let result = validate_event_types(&events);
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.contains("InvalidType"));
+    }
+
+    #[test]
+    fn test_valid_event_types_accepted() {
+        let events = vec![
+            "Chat".to_string(),
+            "UserJoin".to_string(),
+            "Kick".to_string(),
+        ];
+        let result = validate_event_types(&events);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_empty_events_allowed() {
+        let events: Vec<String> = vec![];
+        // Empty events should not be passed to validate_event_types,
+        // but even if they are, it should succeed (no invalid events).
+        let result = validate_event_types(&events);
+        assert!(result.is_ok());
+    }
 }

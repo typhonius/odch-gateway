@@ -9,6 +9,7 @@ pub struct AppConfig {
     pub auth: AuthConfig,
     pub webhook: Option<WebhookConfig>,
     pub rate_limit: Option<RateLimitConfig>,
+    pub admin_ui: Option<AdminUiConfig>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -78,6 +79,20 @@ pub struct RateLimitConfig {
     /// Maximum requests per minute per API key (default: 10).
     #[serde(default = "default_requests_per_minute")]
     pub requests_per_minute: u32,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct AdminUiConfig {
+    pub bind_address: String,
+    pub username: String,
+    pub password_hash: String,
+    #[serde(default = "default_session_expiry_hours")]
+    pub session_expiry_hours: u64,
+    pub jwt_secret: String,
+}
+
+fn default_session_expiry_hours() -> u64 {
+    8
 }
 
 fn default_requests_per_minute() -> u32 {

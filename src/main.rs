@@ -1,3 +1,4 @@
+mod admin_ui;
 mod api;
 mod bus;
 mod config;
@@ -10,6 +11,7 @@ mod webhook;
 
 use std::sync::Arc;
 
+use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
 
 use crate::bus::EventBus;
@@ -138,16 +140,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Build HTTP router and start server
-    let router = api::build_router(app_state);
+    let router = api::build_router(app_state.clone());
+    let cancel_token = CancellationToken::new();
 
     let bind_addr = &config.server.bind_address;
     let listener = tokio::net::TcpListener::bind(bind_addr).await?;
-    tracing::info!("HTTP server listening on {}", bind_addr);
+    tracing::info!("API server listening on {}", bind_addr);
 
-    // Run until shutdown (handle both SIGINT and SIGTERM)
-    axum::serve(listener, router)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    // Main API server
+    let main_token = cancel_token.clone();
+    let main_handle = tokio::spawn(async move {
+        axum::serve(listener, router)
+            .with_graceful_shutdown(main_token.cancelled_owned())
+            .await
+    });
+
+    // Admin UI server (if configured)
+    if let Some(ref admin_ui_config) = config.admin_ui {
+        let admin_router = admin_ui::build_admin_router(app_state);
+        let admin_listener =
+            tokio::net::TcpListener::bind(&admin_ui_config.bind_address).await?;
+        tracing::info!(
+            "Admin UI listening on {}",
+            admin_ui_config.bind_address
+        );
+        let admin_token = cancel_token.clone();
+        tokio::spawn(async move {
+            if let Err(e) = axum::serve(admin_listener, admin_router)
+                .with_graceful_shutdown(admin_token.cancelled_owned())
+                .await
+            {
+                tracing::error!("Admin UI server error: {e}");
+            }
+        });
+    }
+
+    // Wait for shutdown signal, then cancel both servers
+    shutdown_signal().await;
+    cancel_token.cancel();
+    main_handle.await??;
 
     Ok(())
 }

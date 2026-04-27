@@ -39,3 +39,12 @@ storage_path = "webhooks.json"
 # Max requests per minute per API key on write endpoints
 # (chat/message, kick, ban, gag, commands/execute)
 requests_per_minute = 10
+
+[admin_ui]
+# Separate listener for the admin web UI (use nginx to reverse proxy)
+bind_address = "127.0.0.1:3001"
+username = "admin"
+# Generate bcrypt hash: htpasswd -nBC 10 "" | tr -d ':\n'
+password_hash = "$2b$10$CHANGE_ME_generate_a_bcrypt_hash"
+session_expiry_hours = 8
+jwt_secret = "CHANGE_ME_random_secret_at_least_32_chars"

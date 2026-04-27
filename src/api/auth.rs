@@ -91,6 +91,7 @@ mod tests {
             },
             webhook: None,
             rate_limit: None,
+            admin_ui: None,
         };
         let (nmdc_tx, _) = tokio::sync::mpsc::channel(1);
         let (admin_tx, _) = tokio::sync::mpsc::channel(1);

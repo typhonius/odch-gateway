@@ -21,6 +21,7 @@ pub async fn get_user(pool: &DbPool, nick: &str) -> Result<Option<UserRecord>, A
 }
 
 /// List users ordered by most-recent login, with pagination.
+#[allow(dead_code)]
 pub async fn list_users(
     pool: &DbPool,
     limit: i64,

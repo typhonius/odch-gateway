@@ -8,7 +8,9 @@ pub mod users;
 pub mod webhooks;
 pub mod websocket;
 
+use axum::extract::Request;
 use axum::middleware;
+use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{delete, get, post, put};
 use axum::Json;
 use axum::Router;
@@ -93,7 +95,8 @@ pub fn build_router(state: AppState) -> Router {
     let health_route = Router::new().route("/health", get(health_check));
 
     Router::new()
-        .nest("/api", api_routes)
+        .nest("/api/v1", api_routes)
+        .nest("/api", Router::new().fallback(legacy_api_redirect))
         .merge(ws_route)
         .merge(health_route)
         .layer(TraceLayer::new_for_http())
@@ -109,6 +112,20 @@ async fn health_check() -> Json<serde_json::Value> {
         "status": "ok",
         "version": env!("CARGO_PKG_VERSION"),
     }))
+}
+
+/// Redirect legacy `/api/*` requests to `/api/v1/*`.
+///
+/// When nested under `/api`, axum strips the prefix so
+/// `req.uri().path()` contains only the sub-path (e.g. `/hub/info`).
+async fn legacy_api_redirect(req: Request) -> Response {
+    let path = req.uri().path();
+    let query = req
+        .uri()
+        .query()
+        .map(|q| format!("?{q}"))
+        .unwrap_or_default();
+    Redirect::permanent(&format!("/api/v1{path}{query}")).into_response()
 }
 
 #[cfg(test)]
@@ -148,6 +165,7 @@ mod tests {
             },
             webhook: None,
             rate_limit: None,
+            admin_ui: None,
         };
         let (nmdc_tx, _) = tokio::sync::mpsc::channel(1);
         let (admin_tx, _) = tokio::sync::mpsc::channel(1);
@@ -182,7 +200,7 @@ mod tests {
         let app = build_router(state);
 
         let req = Request::builder()
-            .uri("/api/hub/info")
+            .uri("/api/v1/hub/info")
             .body(Body::empty())
             .unwrap();
 
@@ -196,7 +214,7 @@ mod tests {
         let app = build_router(state);
 
         let req = Request::builder()
-            .uri("/api/hub/info")
+            .uri("/api/v1/hub/info")
             .header("X-API-Key", "test-key")
             .body(Body::empty())
             .unwrap();
@@ -225,7 +243,7 @@ mod tests {
         let app = build_router(state);
 
         let req = Request::builder()
-            .uri("/api/users")
+            .uri("/api/v1/users")
             .header("X-API-Key", "test-key")
             .body(Body::empty())
             .unwrap();
@@ -254,7 +272,7 @@ mod tests {
         let app = build_router(state);
 
         let req = Request::builder()
-            .uri("/api/users/TestUser")
+            .uri("/api/v1/users/TestUser")
             .header("X-API-Key", "test-key")
             .body(Body::empty())
             .unwrap();
@@ -277,7 +295,7 @@ mod tests {
 
         let req = Request::builder()
             .method("POST")
-            .uri("/api/webhooks")
+            .uri("/api/v1/webhooks")
             .header("X-API-Key", "test-key")
             .header("Content-Type", "application/json")
             .body(Body::from(serde_json::to_vec(&body).unwrap()))
@@ -285,5 +303,22 @@ mod tests {
 
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_legacy_api_redirect() {
+        let state = test_state();
+        let app = build_router(state);
+
+        let req = Request::builder()
+            .uri("/api/hub/info")
+            .header("X-API-Key", "test-key")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::PERMANENT_REDIRECT);
+        let location = resp.headers().get("location").unwrap().to_str().unwrap();
+        assert_eq!(location, "/api/v1/hub/info");
     }
 }

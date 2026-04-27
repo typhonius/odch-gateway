@@ -1,0 +1,253 @@
+/* ODCHub Admin - Custom styles on top of Pico CSS */
+
+:root {
+  --pico-font-size: 15px;
+}
+
+/* Layout */
+.admin-layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+nav.sidebar {
+  width: 220px;
+  background: var(--pico-card-background-color);
+  border-right: 1px solid var(--pico-muted-border-color);
+  padding: 1rem;
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  overflow-y: auto;
+}
+
+nav.sidebar h2 {
+  font-size: 1.1rem;
+  margin-bottom: 1.5rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--pico-muted-border-color);
+}
+
+nav.sidebar ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+nav.sidebar li {
+  margin-bottom: 0.25rem;
+}
+
+nav.sidebar a {
+  display: block;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  text-decoration: none;
+  color: var(--pico-color);
+  font-size: 0.9rem;
+}
+
+nav.sidebar a:hover,
+nav.sidebar a.active {
+  background: var(--pico-primary-background);
+  color: var(--pico-primary-inverse);
+}
+
+nav.sidebar .nav-footer {
+  position: absolute;
+  bottom: 1rem;
+  left: 1rem;
+  right: 1rem;
+}
+
+main.content {
+  margin-left: 220px;
+  padding: 1.5rem 2rem;
+  flex: 1;
+}
+
+/* Status indicators */
+.status-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.status-badge.connected {
+  background: #2d6a4f;
+  color: #b7e4c7;
+}
+
+.status-badge.disconnected {
+  background: #6b2020;
+  color: #f4a0a0;
+}
+
+.status-badge.op {
+  background: #7b5e00;
+  color: #ffd966;
+}
+
+/* Dashboard cards */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.stat-card {
+  background: var(--pico-card-background-color);
+  border: 1px solid var(--pico-muted-border-color);
+  border-radius: 8px;
+  padding: 1rem;
+  text-align: center;
+}
+
+.stat-card .stat-value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--pico-primary);
+}
+
+.stat-card .stat-label {
+  font-size: 0.85rem;
+  color: var(--pico-muted-color);
+  margin-top: 0.25rem;
+}
+
+/* Chat */
+.chat-container {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 8rem);
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--pico-card-background-color);
+  border: 1px solid var(--pico-muted-border-color);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  font-family: monospace;
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+.chat-messages .chat-line {
+  margin-bottom: 0.25rem;
+}
+
+.chat-messages .chat-nick {
+  font-weight: 700;
+  color: var(--pico-primary);
+}
+
+.chat-messages .chat-time {
+  color: var(--pico-muted-color);
+  font-size: 0.75rem;
+  margin-right: 0.5rem;
+}
+
+.chat-input {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.chat-input input {
+  margin-bottom: 0;
+}
+
+.chat-input button {
+  margin-bottom: 0;
+  white-space: nowrap;
+}
+
+/* Users table */
+table .actions {
+  white-space: nowrap;
+}
+
+table .actions button {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  margin: 0 0.15rem;
+}
+
+/* Login page */
+.login-container {
+  max-width: 400px;
+  margin: 15vh auto;
+  padding: 2rem;
+}
+
+.login-container h1 {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+/* Format sizes nicely */
+.share-size {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Webhooks form */
+.webhook-form {
+  background: var(--pico-card-background-color);
+  border: 1px solid var(--pico-muted-border-color);
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+/* Command execution */
+.command-card {
+  background: var(--pico-card-background-color);
+  border: 1px solid var(--pico-muted-border-color);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.command-card summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.command-output {
+  background: var(--pico-code-background-color);
+  padding: 0.75rem;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.85rem;
+  margin-top: 0.5rem;
+  white-space: pre-wrap;
+}
+
+/* Toast notifications */
+.toast {
+  position: fixed;
+  bottom: 1rem;
+  right: 1rem;
+  padding: 0.75rem 1.25rem;
+  border-radius: 8px;
+  background: var(--pico-primary);
+  color: var(--pico-primary-inverse);
+  font-size: 0.9rem;
+  z-index: 9999;
+  animation: fadeIn 0.2s ease-in;
+}
+
+.toast.error {
+  background: #c0392b;
+  color: white;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
