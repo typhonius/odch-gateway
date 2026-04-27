@@ -186,3 +186,80 @@ pub async fn ungag_user(
         "nick": nick,
     })))
 }
+
+#[derive(Deserialize)]
+pub struct RegisterRequest {
+    pub nick: String,
+    pub password: String,
+    /// Registration type: 0 = regular, 1 = registered, 2 = OP, 3 = admin
+    #[serde(default = "default_reg_type")]
+    pub reg_type: u8,
+}
+
+fn default_reg_type() -> u8 {
+    1
+}
+
+/// POST /api/users/register
+///
+/// Register a user on the hub via the admin port. Sends $AddRegUser.
+pub async fn register_user(
+    State(state): State<AppState>,
+    Json(body): Json<RegisterRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    validate_nick(&body.nick)?;
+    require_admin(&state).await?;
+
+    if body.password.is_empty() {
+        return Err(AppError::BadRequest("Password cannot be empty".to_string()));
+    }
+    if body.password.contains('|') || body.password.contains(' ') {
+        return Err(AppError::BadRequest(
+            "Password cannot contain pipe or space characters".to_string(),
+        ));
+    }
+    if body.reg_type > 3 {
+        return Err(AppError::BadRequest(
+            "reg_type must be 0-3 (0=regular, 1=registered, 2=OP, 3=admin)".to_string(),
+        ));
+    }
+
+    let cmd = format!(
+        "$AddRegUser {} {} {}|",
+        body.nick, body.password, body.reg_type
+    );
+    state
+        .admin_tx
+        .send(cmd)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to send register command: {}", e)))?;
+
+    Ok(Json(serde_json::json!({
+        "status": "registered",
+        "nick": body.nick,
+        "reg_type": body.reg_type,
+    })))
+}
+
+/// DELETE /api/users/:nick/register
+///
+/// Remove a user from the hub reglist via the admin port. Sends $RemoveRegUser.
+pub async fn unregister_user(
+    State(state): State<AppState>,
+    Path(nick): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    validate_nick(&nick)?;
+    require_admin(&state).await?;
+
+    let cmd = format!("$RemoveRegUser {}|", nick);
+    state
+        .admin_tx
+        .send(cmd)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to send unregister command: {}", e)))?;
+
+    Ok(Json(serde_json::json!({
+        "status": "unregistered",
+        "nick": nick,
+    })))
+}

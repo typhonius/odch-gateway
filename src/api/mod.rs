@@ -54,6 +54,11 @@ pub fn build_router(state: AppState) -> Router {
         .route("/users/:nick/gag", post(moderation::gag_user))
         .route("/users/:nick/gag", delete(moderation::ungag_user))
         .route("/commands/:name/execute", post(commands::execute_command))
+        .route("/users/register", post(moderation::register_user))
+        .route(
+            "/users/:nick/register",
+            delete(moderation::unregister_user),
+        )
         .route("/webhooks", post(webhooks::create_webhook))
         .route("/webhooks/:id", put(webhooks::update_webhook))
         .route("/webhooks/:id", delete(webhooks::delete_webhook))

@@ -612,7 +612,7 @@ mod tests {
     fn test_split_admin_mixed_status_and_events() {
         // STATUS response followed by pipe-terminated events
         let buf = "STATUS hub_name|My Hub\r\n$Event JOIN Alice|$Event CHAT <Alice> hi|";
-        let (msgs, remainder) = split_admin_messages(buf);
+        let (msgs, _remainder) = split_admin_messages(buf);
         assert_eq!(msgs.len(), 3);
         assert_eq!(msgs[0], "STATUS hub_name|My Hub");
         assert_eq!(msgs[1], "$Event JOIN Alice");
@@ -657,7 +657,7 @@ mod tests {
     #[test]
     fn test_split_admin_kick_event() {
         let buf = "$Event KICK BadUser Admin|";
-        let (msgs, remainder) = split_admin_messages(buf);
+        let (msgs, _remainder) = split_admin_messages(buf);
         assert_eq!(msgs.len(), 1);
         assert_eq!(msgs[0], "$Event KICK BadUser Admin");
     }
