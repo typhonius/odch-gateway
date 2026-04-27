@@ -276,40 +276,92 @@ pub fn split_messages(buf: &str) -> (Vec<String>, String) {
 
 /// Split admin port buffer into messages.
 ///
-/// The admin port mixes conventions: event/command messages use `|` as
-/// terminators, but STATUS and USER responses use `|` as a field separator
-/// within newline-delimited lines. We split on both `\n` and `|`, but
-/// reassemble STATUS/USER lines that were split on `|` by peeking ahead.
+/// The admin port mixes conventions:
+/// - STATUS/USER responses are `\r\n`-terminated lines with `|` as field separator
+///   e.g. `STATUS hub_name|My Hub\r\n` or `USER nick|ip|share|type|...\r\n`
+/// - Event messages use `|` as terminator (no `\r\n`)
+///   e.g. `$Event JOIN nick|` or `$Event CHAT <nick> message|`
+///
+/// Strategy: split on `\r\n` first (line-oriented), then within each line
+/// split on `|` for event-style messages. STATUS/USER lines are kept whole.
 pub fn split_admin_messages(buf: &str) -> (Vec<String>, String) {
     let mut messages = Vec::new();
-    let mut last_end = 0;
+    let mut remaining = buf;
 
-    for (i, c) in buf.char_indices() {
-        if c == '\n' || c == '|' {
-            let msg = buf[last_end..i].trim().trim_end_matches('|');
-            if !msg.is_empty() {
-                // If this is a STATUS or USER line split on |, reassemble with value
-                if (msg.starts_with("STATUS ") || msg.starts_with("USER ")) && c == '|' {
-                    // The part after | until \n is the value
-                    let rest_start = i + 1;
-                    if let Some(nl_pos) = buf[rest_start..].find('\n') {
-                        let value = buf[rest_start..rest_start + nl_pos].trim();
-                        messages.push(format!("{}|{}", msg, value));
-                        last_end = rest_start + nl_pos + 1;
-                        continue;
-                    } else {
-                        // No newline yet — value may be incomplete, keep in buffer
-                        return (messages, buf[last_end..].to_string());
-                    }
-                }
-                messages.push(msg.to_string());
+    loop {
+        // Look for the next line boundary (\r\n or \n)
+        let nl_pos = remaining.find('\n');
+        // Also look for | (event terminator) — take whichever comes first
+        let pipe_pos = remaining.find('|');
+
+        match (nl_pos, pipe_pos) {
+            (None, None) => {
+                // No delimiter found — everything is a partial/remainder
+                break;
             }
-            last_end = i + 1;
+            (Some(nl), None) => {
+                // Only newline found — extract the line
+                let line = remaining[..nl].trim_end_matches('\r').trim();
+                if !line.is_empty() {
+                    messages.push(line.to_string());
+                }
+                remaining = &remaining[nl + 1..];
+            }
+            (None, Some(pipe)) => {
+                // Only pipe found — check if this is a STATUS/USER line
+                let before_pipe = remaining[..pipe].trim_end_matches('\r').trim();
+                if before_pipe.starts_with("STATUS ") || before_pipe.starts_with("USER ") {
+                    // STATUS/USER needs \r\n to be complete — wait for more data
+                    break;
+                }
+                // Event-style message: everything up to and including this | is one message
+                // But there might be more | in the same event (like $Event MYINFO data with $)
+                let msg = remaining[..pipe].trim_end_matches('\r').trim();
+                if !msg.is_empty() {
+                    messages.push(msg.to_string());
+                }
+                remaining = &remaining[pipe + 1..];
+            }
+            (Some(nl), Some(pipe)) => {
+                let before_pipe = remaining[..pipe].trim_end_matches('\r').trim();
+
+                if before_pipe.starts_with("STATUS ") || before_pipe.starts_with("USER ") {
+                    // STATUS/USER line — the | is a field separator, \n is the terminator
+                    if pipe < nl {
+                        // Take the whole line up to \n as one message
+                        let line = remaining[..nl].trim_end_matches('\r').trim();
+                        if !line.is_empty() {
+                            messages.push(line.to_string());
+                        }
+                        remaining = &remaining[nl + 1..];
+                    } else {
+                        // Newline before pipe — this line is complete
+                        let line = remaining[..nl].trim_end_matches('\r').trim();
+                        if !line.is_empty() {
+                            messages.push(line.to_string());
+                        }
+                        remaining = &remaining[nl + 1..];
+                    }
+                } else if pipe < nl {
+                    // Pipe comes before newline — event-style message
+                    let msg = remaining[..pipe].trim_end_matches('\r').trim();
+                    if !msg.is_empty() {
+                        messages.push(msg.to_string());
+                    }
+                    remaining = &remaining[pipe + 1..];
+                } else {
+                    // Newline before pipe — plain text line (welcome banner, etc.)
+                    let line = remaining[..nl].trim_end_matches('\r').trim();
+                    if !line.is_empty() {
+                        messages.push(line.to_string());
+                    }
+                    remaining = &remaining[nl + 1..];
+                }
+            }
         }
     }
 
-    let remainder = buf[last_end..].to_string();
-    (messages, remainder)
+    (messages, remaining.to_string())
 }
 
 #[cfg(test)]
@@ -516,5 +568,107 @@ mod tests {
             NmdcMessage::Unknown(s) => assert_eq!(s, "SomeRandomGarbage"),
             _ => panic!("Expected Unknown"),
         }
+    }
+
+    // ---- split_admin_messages tests ----
+
+    #[test]
+    fn test_split_admin_status_with_crlf() {
+        // STATUS responses use \r\n line endings and | as field separator
+        let buf = "\r\nSTATUS hub_name|Chaotic Neutral\r\nSTATUS users_online|5\r\nSTATUS total_share|12345\r\nSTATUS END|\r\n";
+        let (msgs, remainder) = split_admin_messages(buf);
+        assert_eq!(msgs.len(), 4);
+        assert_eq!(msgs[0], "STATUS hub_name|Chaotic Neutral");
+        assert_eq!(msgs[1], "STATUS users_online|5");
+        assert_eq!(msgs[2], "STATUS total_share|12345");
+        assert_eq!(msgs[3], "STATUS END|");
+        assert_eq!(remainder, "");
+    }
+
+    #[test]
+    fn test_split_admin_user_list_with_crlf() {
+        // USER responses use \r\n line endings and | as field separator
+        let buf = "\r\nUSER Dragon|127.0.0.1|136571|REGISTERED|desc|email|3\r\nUSER Admin|10.0.0.1|999|OP|admin||5\r\n";
+        let (msgs, remainder) = split_admin_messages(buf);
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0], "USER Dragon|127.0.0.1|136571|REGISTERED|desc|email|3");
+        assert_eq!(msgs[1], "USER Admin|10.0.0.1|999|OP|admin||5");
+        assert_eq!(remainder, "");
+    }
+
+    #[test]
+    fn test_split_admin_events_pipe_terminated() {
+        // Events use | as terminator, no \r\n
+        let buf = "$Event JOIN Alice|$Event CHAT <Alice> hello|$Event QUIT Bob|";
+        let (msgs, remainder) = split_admin_messages(buf);
+        assert_eq!(msgs.len(), 3);
+        assert_eq!(msgs[0], "$Event JOIN Alice");
+        assert_eq!(msgs[1], "$Event CHAT <Alice> hello");
+        assert_eq!(msgs[2], "$Event QUIT Bob");
+        assert_eq!(remainder, "");
+    }
+
+    #[test]
+    fn test_split_admin_mixed_status_and_events() {
+        // STATUS response followed by pipe-terminated events
+        let buf = "STATUS hub_name|My Hub\r\n$Event JOIN Alice|$Event CHAT <Alice> hi|";
+        let (msgs, remainder) = split_admin_messages(buf);
+        assert_eq!(msgs.len(), 3);
+        assert_eq!(msgs[0], "STATUS hub_name|My Hub");
+        assert_eq!(msgs[1], "$Event JOIN Alice");
+        assert_eq!(msgs[2], "$Event CHAT <Alice> hi");
+    }
+
+    #[test]
+    fn test_split_admin_partial_status() {
+        // Incomplete STATUS line (no \r\n yet) should remain in buffer
+        let buf = "STATUS hub_name|Chaotic";
+        let (msgs, remainder) = split_admin_messages(buf);
+        assert!(msgs.is_empty());
+        assert_eq!(remainder, "STATUS hub_name|Chaotic");
+    }
+
+    #[test]
+    fn test_split_admin_partial_event() {
+        // Incomplete event (no | yet) should remain in buffer
+        let buf = "$Event CHAT <Alice> hel";
+        let (msgs, remainder) = split_admin_messages(buf);
+        assert!(msgs.is_empty());
+        assert_eq!(remainder, "$Event CHAT <Alice> hel");
+    }
+
+    #[test]
+    fn test_split_admin_empty() {
+        let (msgs, remainder) = split_admin_messages("");
+        assert!(msgs.is_empty());
+        assert_eq!(remainder, "");
+    }
+
+    #[test]
+    fn test_split_admin_search_with_crlf() {
+        // SEARCH events have explicit |\r\n
+        let buf = "$Event SEARCH user pattern|\r\n";
+        let (msgs, remainder) = split_admin_messages(buf);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0], "$Event SEARCH user pattern");
+        assert_eq!(remainder, "");
+    }
+
+    #[test]
+    fn test_split_admin_kick_event() {
+        let buf = "$Event KICK BadUser Admin|";
+        let (msgs, remainder) = split_admin_messages(buf);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0], "$Event KICK BadUser Admin");
+    }
+
+    #[test]
+    fn test_split_admin_welcome_banner() {
+        // Welcome banner has \r\n lines and contains | in text
+        let buf = "\r\nOpen DC Hub, version 0.12.0, administrators port.\r\nAll commands begin with '$' and end with '|'.\r\nPlease supply administrators passord.\r\n";
+        let (msgs, remainder) = split_admin_messages(buf);
+        // Should parse as text lines (may split on | in "end with '|'")
+        assert!(!msgs.is_empty());
+        assert_eq!(remainder, "");
     }
 }

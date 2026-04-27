@@ -78,24 +78,42 @@ async fn connect_and_run(
     let mut buf = vec![0u8; 65536];
     let mut partial = String::new();
 
-    // ---- Phase 1: Authenticate ----
-    // The admin port expects the password followed by a pipe delimiter.
-    let auth_cmd = format!("{}|", config.password);
+    // ---- Phase 1: Read welcome banner, then authenticate ----
+    // The admin port sends a welcome banner on connect, then expects
+    // "$AdminPass <password>|" as the authentication command.
+    let timeout = tokio::time::Duration::from_secs(AUTH_TIMEOUT_SECS);
+
+    // Read the welcome banner first
+    let n = tokio::time::timeout(timeout, stream.read(&mut buf)).await??;
+    if n == 0 {
+        return Err("Admin port closed connection before sending welcome".into());
+    }
+    let welcome = String::from_utf8_lossy(&buf[..n]);
+    info!("Admin port welcome: {}", welcome.trim());
+
+    // Send authentication command
+    let auth_cmd = format!("$AdminPass {}|", config.password);
     stream.write_all(auth_cmd.as_bytes()).await?;
 
-    // Read the auth response. OpenDCHub sends back a welcome/status line on
-    // success, or closes the connection on failure.
-    let timeout = tokio::time::Duration::from_secs(AUTH_TIMEOUT_SECS);
+    // Read the auth response — expect "Password accepted" on success
     let n = tokio::time::timeout(timeout, stream.read(&mut buf)).await??;
     if n == 0 {
         return Err("Admin port closed connection (auth rejected?)".into());
     }
 
-    partial.push_str(&String::from_utf8_lossy(&buf[..n]));
+    let auth_response = String::from_utf8_lossy(&buf[..n]);
+    if auth_response.contains("Bad Admin Password") {
+        return Err("Admin port authentication failed: bad password".into());
+    }
+    if auth_response.contains("already logged in") {
+        return Err("Admin port authentication failed: administrator already logged in".into());
+    }
+
+    // Process any messages in the auth response
+    partial.push_str(&auth_response);
     let (messages, remainder) = protocol::split_admin_messages(&partial);
     partial = remainder;
 
-    // Log any initial messages received after auth
     for raw in &messages {
         let msg = protocol::parse_message(raw);
         info!("Admin auth response: {:?}", msg);
@@ -269,7 +287,10 @@ async fn handle_admin_message(msg: NmdcMessage, event_bus: &EventBus, hub_state:
             }
 
             let share_bytes = share.parse::<u64>().unwrap_or(0);
-            let is_op = user_type == "1" || user_type == "2";
+            let is_op = matches!(
+                user_type.as_str(),
+                "OP" | "OP_ADMIN" | "1" | "2"
+            );
 
             hub_state.users.write().await.insert(
                 nick.clone(),
