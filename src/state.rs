@@ -28,6 +28,10 @@ pub struct HubState {
     pub ops: RwLock<Vec<String>>,
     pub connected: RwLock<bool>,
     pub total_share: RwLock<u64>,
+    pub uptime_secs: RwLock<u64>,
+    pub hub_port: RwLock<u16>,
+    pub tls_port: RwLock<u16>,
+    pub max_users: RwLock<u32>,
 }
 
 impl HubState {
@@ -39,6 +43,10 @@ impl HubState {
             ops: RwLock::new(Vec::new()),
             connected: RwLock::new(false),
             total_share: RwLock::new(0),
+            uptime_secs: RwLock::new(0),
+            hub_port: RwLock::new(0),
+            tls_port: RwLock::new(0),
+            max_users: RwLock::new(0),
         }
     }
 }

@@ -274,6 +274,26 @@ async fn handle_admin_message(msg: NmdcMessage, event_bus: &EventBus, hub_state:
                     *hub_state.total_share.write().await = share;
                 }
             }
+            "uptime" => {
+                if let Ok(secs) = value.parse::<u64>() {
+                    *hub_state.uptime_secs.write().await = secs;
+                }
+            }
+            "hub_port" => {
+                if let Ok(port) = value.parse::<u16>() {
+                    *hub_state.hub_port.write().await = port;
+                }
+            }
+            "tls_port" => {
+                if let Ok(port) = value.parse::<u16>() {
+                    *hub_state.tls_port.write().await = port;
+                }
+            }
+            "max_users" => {
+                if let Ok(max) = value.parse::<u32>() {
+                    *hub_state.max_users.write().await = max;
+                }
+            }
             _ => {
                 info!("Admin status: {}={}", key, value);
             }

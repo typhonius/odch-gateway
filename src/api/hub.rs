@@ -14,6 +14,11 @@ pub struct HubInfoResponse {
     pub op_count: usize,
     pub total_share: u64,
     pub connected: bool,
+    pub uptime_secs: u64,
+    pub hub_port: u16,
+    pub tls_port: u16,
+    pub max_users: u32,
+    pub gateway_version: &'static str,
 }
 
 /// GET /api/hub/info
@@ -29,6 +34,11 @@ pub async fn get_hub_info(
     let total_share = *state.hub_state.total_share.read().await;
     let connected = *state.hub_state.connected.read().await;
 
+    let uptime_secs = *state.hub_state.uptime_secs.read().await;
+    let hub_port = *state.hub_state.hub_port.read().await;
+    let tls_port = *state.hub_state.tls_port.read().await;
+    let max_users = *state.hub_state.max_users.read().await;
+
     Ok(Json(HubInfoResponse {
         hub_name,
         topic,
@@ -36,6 +46,11 @@ pub async fn get_hub_info(
         op_count: ops.len(),
         total_share,
         connected,
+        uptime_secs,
+        hub_port,
+        tls_port,
+        max_users,
+        gateway_version: env!("CARGO_PKG_VERSION"),
     }))
 }
 
