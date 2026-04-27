@@ -274,20 +274,34 @@ pub fn split_messages(buf: &str) -> (Vec<String>, String) {
     (messages, remainder)
 }
 
-/// Split admin port buffer into messages delimited by newlines.
+/// Split admin port buffer into messages.
 ///
-/// The admin port uses `\n` as message delimiters, unlike the NMDC protocol
-/// which uses `|`. STATUS responses contain `|` as a field separator
-/// (e.g. `STATUS hub_name|Chaotic Neutral\n`), so splitting on `|` would
-/// incorrectly fragment them.
+/// The admin port mixes conventions: event/command messages use `|` as
+/// terminators, but STATUS and USER responses use `|` as a field separator
+/// within newline-delimited lines. We split on both `\n` and `|`, but
+/// reassemble STATUS/USER lines that were split on `|` by peeking ahead.
 pub fn split_admin_messages(buf: &str) -> (Vec<String>, String) {
     let mut messages = Vec::new();
     let mut last_end = 0;
 
     for (i, c) in buf.char_indices() {
-        if c == '\n' {
-            let msg = buf[last_end..i].trim();
+        if c == '\n' || c == '|' {
+            let msg = buf[last_end..i].trim().trim_end_matches('|');
             if !msg.is_empty() {
+                // If this is a STATUS or USER line split on |, reassemble with value
+                if (msg.starts_with("STATUS ") || msg.starts_with("USER ")) && c == '|' {
+                    // The part after | until \n is the value
+                    let rest_start = i + 1;
+                    if let Some(nl_pos) = buf[rest_start..].find('\n') {
+                        let value = buf[rest_start..rest_start + nl_pos].trim();
+                        messages.push(format!("{}|{}", msg, value));
+                        last_end = rest_start + nl_pos + 1;
+                        continue;
+                    } else {
+                        // No newline yet — value may be incomplete, keep in buffer
+                        return (messages, buf[last_end..].to_string());
+                    }
+                }
                 messages.push(msg.to_string());
             }
             last_end = i + 1;
