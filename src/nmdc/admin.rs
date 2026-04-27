@@ -92,7 +92,7 @@ async fn connect_and_run(
     }
 
     partial.push_str(&String::from_utf8_lossy(&buf[..n]));
-    let (messages, remainder) = protocol::split_messages(&partial);
+    let (messages, remainder) = protocol::split_admin_messages(&partial);
     partial = remainder;
 
     // Log any initial messages received after auth
@@ -121,7 +121,7 @@ async fn connect_and_run(
                 }
 
                 partial.push_str(&String::from_utf8_lossy(&buf[..n]));
-                let (messages, remainder) = protocol::split_messages(&partial);
+                let (messages, remainder) = protocol::split_admin_messages(&partial);
                 partial = remainder;
 
                 for raw in &messages {

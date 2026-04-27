@@ -274,6 +274,30 @@ pub fn split_messages(buf: &str) -> (Vec<String>, String) {
     (messages, remainder)
 }
 
+/// Split admin port buffer into messages delimited by newlines.
+///
+/// The admin port uses `\n` as message delimiters, unlike the NMDC protocol
+/// which uses `|`. STATUS responses contain `|` as a field separator
+/// (e.g. `STATUS hub_name|Chaotic Neutral\n`), so splitting on `|` would
+/// incorrectly fragment them.
+pub fn split_admin_messages(buf: &str) -> (Vec<String>, String) {
+    let mut messages = Vec::new();
+    let mut last_end = 0;
+
+    for (i, c) in buf.char_indices() {
+        if c == '\n' {
+            let msg = buf[last_end..i].trim();
+            if !msg.is_empty() {
+                messages.push(msg.to_string());
+            }
+            last_end = i + 1;
+        }
+    }
+
+    let remainder = buf[last_end..].to_string();
+    (messages, remainder)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
