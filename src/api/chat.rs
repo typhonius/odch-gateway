@@ -77,12 +77,28 @@ pub async fn send_message(
 
     let safe_nick = sanitize_nmdc(&body.nick);
     let safe_message = sanitize_nmdc(&body.message);
+
+    // Store in DB
+    if let Some(ref pool) = state.db_pool {
+        crate::db::queries::insert_chat(pool.inner(), &safe_nick, &safe_message)
+            .await
+            .ok();
+    }
+
+    // Send to hub
     let cmd = serde_json::json!({"type": "send_all", "message": format!("<{}> {}", safe_nick, safe_message)}).to_string();
     state
         .admin_tx
         .send(cmd)
         .await
         .map_err(|e| AppError::Internal(format!("Failed to send chat: {}", e)))?;
+
+    // Publish to WebSocket subscribers
+    state.event_bus.publish(crate::event::HubEvent::Chat {
+        nick: safe_nick.clone(),
+        message: safe_message.clone(),
+        timestamp: chrono::Utc::now(),
+    });
 
     Ok(Json(serde_json::json!({
         "status": "sent",
