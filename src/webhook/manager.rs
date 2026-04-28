@@ -109,7 +109,7 @@ impl WebhookManager {
     }
 
     /// Create a manager that does not persist to disk (for testing).
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn in_memory(max_webhooks: usize) -> Self {
         Self {
             webhooks: Arc::new(RwLock::new(HashMap::new())),
@@ -154,13 +154,6 @@ impl WebhookManager {
     pub async fn list(&self) -> Vec<Webhook> {
         let hooks = self.webhooks.read().await;
         hooks.values().cloned().collect()
-    }
-
-    /// Get a webhook by ID.
-    #[allow(dead_code)]
-    pub async fn get(&self, id: &str) -> Option<Webhook> {
-        let hooks = self.webhooks.read().await;
-        hooks.get(id).cloned()
     }
 
     /// Create a new webhook.

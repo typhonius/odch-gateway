@@ -67,4 +67,5 @@ pub struct AppState {
     pub db_pool: Option<DbPool>,
     pub webhook_manager: Arc<WebhookManager>,
     pub ws_connections: Arc<AtomicUsize>,
+    pub command_engine: Option<Arc<crate::bot::CommandEngine>>,
 }

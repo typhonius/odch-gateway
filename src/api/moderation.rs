@@ -6,8 +6,6 @@ use crate::api::chat::sanitize_nmdc;
 use crate::error::AppError;
 use crate::state::AppState;
 
-/// Validate that a nick extracted from the URL path does not contain
-/// NMDC protocol control characters (`|` or `$`).
 fn validate_nick(nick: &str) -> Result<(), AppError> {
     if nick.contains('|') || nick.contains('$') {
         return Err(AppError::BadRequest(
@@ -15,6 +13,15 @@ fn validate_nick(nick: &str) -> Result<(), AppError> {
         ));
     }
     Ok(())
+}
+
+/// Send a JSON command to the hub via the admin_tx channel.
+async fn send_hub_command(state: &AppState, cmd: serde_json::Value) -> Result<(), AppError> {
+    state
+        .admin_tx
+        .send(cmd.to_string())
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to send hub command: {}", e)))
 }
 
 #[derive(Deserialize)]
@@ -27,7 +34,6 @@ pub struct KickRequest {
 pub struct BanRequest {
     #[serde(default)]
     pub reason: String,
-    /// Optional: ban by IP instead of by nick.
     #[serde(default)]
     pub ip: Option<String>,
 }
@@ -39,8 +45,6 @@ pub struct GagRequest {
 }
 
 /// POST /api/users/:nick/kick
-///
-/// Kick a user from the hub via the admin port.
 pub async fn kick_user(
     State(state): State<AppState>,
     Path(nick): Path<String>,
@@ -48,23 +52,12 @@ pub async fn kick_user(
 ) -> Result<Json<serde_json::Value>, AppError> {
     validate_nick(&nick)?;
 
-
-    // Verify user is online
     let is_online = state.hub_state.users.read().await.contains_key(&nick);
     if !is_online {
-        return Err(AppError::NotFound(format!(
-            "User '{}' is not currently online",
-            nick
-        )));
+        return Err(AppError::NotFound(format!("User '{}' is not currently online", nick)));
     }
 
-    // Send $Kick via admin port
-    let cmd = format!("$Kick {}|", nick);
-    state
-        .admin_tx
-        .send(cmd)
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to send kick command: {}", e)))?;
+    send_hub_command(&state, serde_json::json!({"type": "kick", "nick": nick})).await?;
 
     Ok(Json(serde_json::json!({
         "status": "kicked",
@@ -74,8 +67,6 @@ pub async fn kick_user(
 }
 
 /// POST /api/users/:nick/ban
-///
-/// Ban a user via the admin port. Sends $AddBanEntry.
 pub async fn ban_user(
     State(state): State<AppState>,
     Path(nick): Path<String>,
@@ -83,20 +74,13 @@ pub async fn ban_user(
 ) -> Result<Json<serde_json::Value>, AppError> {
     validate_nick(&nick)?;
 
-
-    // If an IP is provided, ban by IP (sanitized); otherwise look up the user's nick to ban
     let ban_target = if let Some(ref ip) = body.ip {
         sanitize_nmdc(ip)
     } else {
         nick.clone()
     };
 
-    let cmd = format!("$AddBanEntry {}|", ban_target);
-    state
-        .admin_tx
-        .send(cmd)
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to send ban command: {}", e)))?;
+    send_hub_command(&state, serde_json::json!({"type": "ban", "entry": ban_target})).await?;
 
     Ok(Json(serde_json::json!({
         "status": "banned",
@@ -107,21 +91,13 @@ pub async fn ban_user(
 }
 
 /// DELETE /api/users/:nick/ban
-///
-/// Unban a user via the admin port. Sends $RemoveBanEntry.
 pub async fn unban_user(
     State(state): State<AppState>,
     Path(nick): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     validate_nick(&nick)?;
 
-
-    let cmd = format!("$RemoveBanEntry {}|", nick);
-    state
-        .admin_tx
-        .send(cmd)
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to send unban command: {}", e)))?;
+    send_hub_command(&state, serde_json::json!({"type": "unban", "entry": nick})).await?;
 
     Ok(Json(serde_json::json!({
         "status": "unbanned",
@@ -130,8 +106,6 @@ pub async fn unban_user(
 }
 
 /// POST /api/users/:nick/gag
-///
-/// Gag a user via the admin port. Sends $AddGagEntry.
 pub async fn gag_user(
     State(state): State<AppState>,
     Path(nick): Path<String>,
@@ -139,13 +113,7 @@ pub async fn gag_user(
 ) -> Result<Json<serde_json::Value>, AppError> {
     validate_nick(&nick)?;
 
-
-    let cmd = format!("$AddGagEntry {}|", nick);
-    state
-        .admin_tx
-        .send(cmd)
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to send gag command: {}", e)))?;
+    send_hub_command(&state, serde_json::json!({"type": "gag", "nick": nick})).await?;
 
     Ok(Json(serde_json::json!({
         "status": "gagged",
@@ -155,21 +123,13 @@ pub async fn gag_user(
 }
 
 /// DELETE /api/users/:nick/gag
-///
-/// Ungag a user via the admin port. Sends $RemoveGagEntry.
 pub async fn ungag_user(
     State(state): State<AppState>,
     Path(nick): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     validate_nick(&nick)?;
 
-
-    let cmd = format!("$RemoveGagEntry {}|", nick);
-    state
-        .admin_tx
-        .send(cmd)
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to send ungag command: {}", e)))?;
+    send_hub_command(&state, serde_json::json!({"type": "ungag", "nick": nick})).await?;
 
     Ok(Json(serde_json::json!({
         "status": "ungagged",
@@ -181,7 +141,6 @@ pub async fn ungag_user(
 pub struct RegisterRequest {
     pub nick: String,
     pub password: String,
-    /// Registration type: 0 = regular, 1 = registered, 2 = OP, 3 = admin
     #[serde(default = "default_reg_type")]
     pub reg_type: u8,
 }
@@ -191,14 +150,11 @@ fn default_reg_type() -> u8 {
 }
 
 /// POST /api/users/register
-///
-/// Register a user on the hub via the admin port. Sends $AddRegUser.
 pub async fn register_user(
     State(state): State<AppState>,
     Json(body): Json<RegisterRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     validate_nick(&body.nick)?;
-
 
     if body.password.is_empty() {
         return Err(AppError::BadRequest("Password cannot be empty".to_string()));
@@ -214,15 +170,12 @@ pub async fn register_user(
         ));
     }
 
-    let cmd = format!(
-        "$AddRegUser {} {} {}|",
-        body.nick, body.password, body.reg_type
-    );
-    state
-        .admin_tx
-        .send(cmd)
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to send register command: {}", e)))?;
+    send_hub_command(&state, serde_json::json!({
+        "type": "register_user",
+        "nick": body.nick,
+        "password": body.password,
+        "permission": body.reg_type,
+    })).await?;
 
     Ok(Json(serde_json::json!({
         "status": "registered",
@@ -232,21 +185,16 @@ pub async fn register_user(
 }
 
 /// DELETE /api/users/:nick/register
-///
-/// Remove a user from the hub reglist via the admin port. Sends $RemoveRegUser.
 pub async fn unregister_user(
     State(state): State<AppState>,
     Path(nick): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     validate_nick(&nick)?;
 
-
-    let cmd = format!("$RemoveRegUser {}|", nick);
-    state
-        .admin_tx
-        .send(cmd)
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to send unregister command: {}", e)))?;
+    send_hub_command(&state, serde_json::json!({
+        "type": "unregister_user",
+        "nick": nick,
+    })).await?;
 
     Ok(Json(serde_json::json!({
         "status": "unregistered",
