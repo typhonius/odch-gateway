@@ -98,12 +98,29 @@ function LoginPage({ onLogin }) {
 
 // ---- Dashboard Page ----
 
+function formatUptime(secs) {
+  if (!secs) return '0s';
+  const d = Math.floor(secs / 86400);
+  const h = Math.floor((secs % 86400) / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  if (d > 0) return d + 'd ' + h + 'h';
+  if (h > 0) return h + 'h ' + m + 'm';
+  return m + 'm ' + (secs % 60) + 's';
+}
+
 function DashboardPage() {
   const [info, setInfo] = useState(null);
+  const [stats, setStats] = useState(null);
+  const [chatCount, setChatCount] = useState(null);
 
   useEffect(() => {
-    api('/hub/info').then(setInfo).catch(() => {});
-    const iv = setInterval(() => api('/hub/info').then(setInfo).catch(() => {}), 10000);
+    const load = () => {
+      api('/hub/info').then(setInfo).catch(() => {});
+      api('/hub/stats?limit=1').then(setStats).catch(() => {});
+      api('/chat/history?limit=1').then(d => setChatCount(d.count)).catch(() => {});
+    };
+    load();
+    const iv = setInterval(load, 10000);
     return () => clearInterval(iv);
   }, []);
 
@@ -125,11 +142,7 @@ function DashboardPage() {
         <div class="stat-label">Hub Name</div>
       </div>
       <div class="stat-card">
-        <div class="stat-value" style="font-size: 1.2rem">${info.topic || '\u2014'}</div>
-        <div class="stat-label">Topic</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-value">${info.user_count || 0}</div>
+        <div class="stat-value">${info.user_count || 0} / ${info.max_users || '?'}</div>
         <div class="stat-label">Users Online</div>
       </div>
       <div class="stat-card">
@@ -140,7 +153,20 @@ function DashboardPage() {
         <div class="stat-value">${formatSize(info.total_share)}</div>
         <div class="stat-label">Total Share</div>
       </div>
+      <div class="stat-card">
+        <div class="stat-value">${formatUptime(info.uptime_secs)}</div>
+        <div class="stat-label">Hub Uptime</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">${info.hub_port || '?'}${info.tls_port ? ' / TLS ' + info.tls_port : ''}</div>
+        <div class="stat-label">Ports</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">v${info.gateway_version || '?'}</div>
+        <div class="stat-label">Gateway</div>
+      </div>
     </div>
+    ${info.topic ? html`<p><strong>Topic:</strong> ${info.topic}</p>` : null}
   `;
 }
 
