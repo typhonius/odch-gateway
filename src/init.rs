@@ -115,7 +115,6 @@ max_retries = 3
 retry_delay_secs = 5
 timeout_secs = 10
 max_webhooks = 50
-storage_path = "{config_dir}/webhooks.json"
 
 [rate_limit]
 requests_per_minute = 10
