@@ -41,7 +41,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Set up shared state
     let event_bus = Arc::new(EventBus::new(1024));
     let hub_state = Arc::new(HubState::new());
-    let (nmdc_tx, nmdc_rx) = tokio::sync::mpsc::channel::<String>(256);
     let (admin_tx, admin_rx) = tokio::sync::mpsc::channel::<String>(256);
 
     // Set up database pool (optional)
@@ -91,30 +90,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config: config.clone(),
         event_bus: event_bus.clone(),
         hub_state: hub_state.clone(),
-        nmdc_tx: Arc::new(nmdc_tx),
         admin_tx: Arc::new(admin_tx),
         db_pool,
         webhook_manager: webhook_manager.clone(),
         ws_connections: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
     };
 
-    // Spawn NMDC client
-    let hub_config = config.hub.clone();
-    let bus = event_bus.clone();
-    let state = hub_state.clone();
-    tokio::spawn(async move {
-        nmdc::client::run(hub_config, bus, state, nmdc_rx).await;
-    });
-
-    // Spawn admin client (if configured)
-    if let Some(admin_config) = config.admin.clone() {
+    // The gateway operates entirely through the admin port — no NMDC client
+    // connection needed. The admin port provides: event stream, status data,
+    // user list, moderation commands, $DataToAll for chat, and user registration.
+    {
+        let admin_config = config.admin.clone();
         let bus = event_bus.clone();
         let state = hub_state.clone();
         tokio::spawn(async move {
             nmdc::admin::run(admin_config, bus, state, admin_rx).await;
         });
-    } else {
-        tracing::info!("No admin port configured; moderation commands will be unavailable");
     }
 
     // Spawn webhook dispatcher

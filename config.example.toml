@@ -2,18 +2,6 @@
 bind_address = "0.0.0.0:3000"
 cors_origins = ["http://localhost:5173"]
 
-[hub]
-host = "127.0.0.1"
-port = 4111
-nickname = "Gateway"
-description = "API Gateway"
-email = ""
-share_size = 0
-speed = "LAN(T1)"
-password = ""
-reconnect_delay_secs = 5
-max_reconnect_delay_secs = 300
-
 [admin]
 host = "127.0.0.1"
 port = 53696
@@ -37,7 +25,6 @@ storage_path = "webhooks.json"
 
 [rate_limit]
 # Max requests per minute per API key on write endpoints
-# (chat/message, kick, ban, gag, commands/execute)
 requests_per_minute = 10
 
 [admin_ui]

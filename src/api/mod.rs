@@ -137,7 +137,7 @@ async fn legacy_api_redirect(req: Request) -> Response {
 mod tests {
     use super::*;
     use crate::bus::EventBus;
-    use crate::config::{AppConfig, AuthConfig, HubConfig, ServerConfig};
+    use crate::config::{AdminConfig, AppConfig, AuthConfig, ServerConfig};
     use crate::state::{AppState, HubState};
     use crate::webhook::manager::WebhookManager;
     use axum::body::Body;
@@ -151,19 +151,11 @@ mod tests {
                 bind_address: "127.0.0.1:8080".to_string(),
                 cors_origins: vec![],
             },
-            hub: HubConfig {
+            admin: AdminConfig {
                 host: "localhost".to_string(),
-                port: 411,
-                nickname: "test".to_string(),
-                description: "test".to_string(),
-                email: String::new(),
-                share_size: 0,
-                speed: "LAN(T1)".to_string(),
-                password: String::new(),
-                reconnect_delay_secs: 5,
-                max_reconnect_delay_secs: 300,
+                port: 53696,
+                password: "test".to_string(),
             },
-            admin: None,
             database: None,
             auth: AuthConfig {
                 api_keys: vec!["test-key".to_string()],
@@ -172,13 +164,11 @@ mod tests {
             rate_limit: None,
             admin_ui: None,
         };
-        let (nmdc_tx, _) = tokio::sync::mpsc::channel(1);
         let (admin_tx, _) = tokio::sync::mpsc::channel(1);
         AppState {
             config: Arc::new(config),
             event_bus: Arc::new(EventBus::new(16)),
             hub_state: Arc::new(HubState::new()),
-            nmdc_tx: Arc::new(nmdc_tx),
             admin_tx: Arc::new(admin_tx),
             db_pool: None,
             webhook_manager: Arc::new(WebhookManager::in_memory(10)),
@@ -241,8 +231,7 @@ mod tests {
                 description: "Test".to_string(),
                 speed: "LAN(T1)".to_string(),
                 email: "test@example.com".to_string(),
-                share: 1024,
-                is_op: false, is_bot: false,
+                share: 1024, is_op: false,
             },
         );
 
@@ -270,8 +259,7 @@ mod tests {
                 description: "Test".to_string(),
                 speed: "LAN(T1)".to_string(),
                 email: "test@example.com".to_string(),
-                share: 1024,
-                is_op: false, is_bot: false,
+                share: 1024, is_op: false,
             },
         );
 

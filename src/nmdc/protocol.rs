@@ -256,6 +256,7 @@ fn parse_user_entry(rest: &str) -> NmdcMessage {
 
 /// Split a raw TCP buffer into individual pipe-delimited messages.
 /// Returns (parsed messages as owned strings, remaining incomplete data).
+#[allow(dead_code)]
 pub fn split_messages(buf: &str) -> (Vec<String>, String) {
     let mut messages = Vec::new();
     let mut last_end = 0;

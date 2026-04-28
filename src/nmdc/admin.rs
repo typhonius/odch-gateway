@@ -53,6 +53,7 @@ pub async fn run(
             }
         }
 
+        *hub_state.connected.write().await = false;
         event_bus.publish(HubEvent::GatewayStatus {
             connected: false,
             message: format!("Admin port disconnected. Reconnecting in {}s...", delay),
@@ -123,6 +124,14 @@ async fn connect_and_run(
         "Authenticated to admin port at {}:{}",
         config.host, config.port
     );
+
+    // Mark hub as connected
+    *hub_state.connected.write().await = true;
+    event_bus.publish(HubEvent::GatewayStatus {
+        connected: true,
+        message: "Connected to hub".to_string(),
+        timestamp: chrono::Utc::now(),
+    });
 
     // ---- Phase 2: Enable events and request initial state ----
     let setup = "$Set admin_events 1|$GetStatus|$GetUserList|";
@@ -242,9 +251,6 @@ async fn handle_admin_message(msg: NmdcMessage, event_bus: &EventBus, hub_state:
                     } = protocol::parse_message(&synthetic)
                     {
                         let is_op = hub_state.ops.read().await.contains(&nick);
-                        // Preserve is_bot from existing entry if known
-                        let is_bot = hub_state.users.read().await
-                            .get(&nick).map(|u| u.is_bot).unwrap_or(false);
                         hub_state.users.write().await.insert(
                             nick.clone(),
                             crate::state::HubUser {
@@ -254,7 +260,6 @@ async fn handle_admin_message(msg: NmdcMessage, event_bus: &EventBus, hub_state:
                                 email: email.clone(),
                                 share,
                                 is_op,
-                                is_bot,
                             },
                         );
                         event_bus.publish(HubEvent::UserInfo {
@@ -338,7 +343,6 @@ async fn handle_admin_message(msg: NmdcMessage, event_bus: &EventBus, hub_state:
                 user_type.as_str(),
                 "OP" | "OP_ADMIN" | "ADMIN" | "1" | "2"
             );
-            let is_bot = user_type == "SCRIPT";
 
             hub_state.users.write().await.insert(
                 nick.clone(),
@@ -349,7 +353,6 @@ async fn handle_admin_message(msg: NmdcMessage, event_bus: &EventBus, hub_state:
                     email: email.clone(),
                     share: share_bytes,
                     is_op,
-                    is_bot,
                 },
             );
 
@@ -542,7 +545,7 @@ mod tests {
                 speed: String::new(),
                 email: String::new(),
                 share: 0,
-                is_op: false, is_bot: false,
+                is_op: false,
             },
         );
 

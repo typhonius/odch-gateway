@@ -17,7 +17,6 @@ pub struct HubUser {
     pub email: String,
     pub share: u64,
     pub is_op: bool,
-    pub is_bot: bool,
 }
 
 /// Live hub state.
@@ -64,7 +63,6 @@ pub struct AppState {
     pub config: Arc<AppConfig>,
     pub event_bus: Arc<EventBus>,
     pub hub_state: Arc<HubState>,
-    pub nmdc_tx: Arc<tokio::sync::mpsc::Sender<String>>,
     pub admin_tx: Arc<tokio::sync::mpsc::Sender<String>>,
     pub db_pool: Option<DbPool>,
     pub webhook_manager: Arc<WebhookManager>,

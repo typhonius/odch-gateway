@@ -71,6 +71,8 @@ pub async fn list_commands(
 
 #[derive(Deserialize)]
 pub struct ExecuteCommandRequest {
+    /// Nick to execute the command as. Required.
+    pub nick: String,
     /// Optional arguments passed to the command.
     #[serde(default)]
     pub args: String,
@@ -78,24 +80,26 @@ pub struct ExecuteCommandRequest {
 
 /// POST /api/commands/:name/execute
 ///
-/// Execute a bot command by sending it as a chat message via NMDC.
+/// Execute a bot command by sending it as a chat message via the admin port.
 /// The command is prefixed with `-` (the standard odchbot command prefix)
-/// and sent as the gateway bot user.
+/// and broadcast as the specified nick.
 pub async fn execute_command(
     State(state): State<AppState>,
     Path(name): Path<String>,
     Json(body): Json<ExecuteCommandRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    // Validate command name: alphanumeric only
     if !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
         return Err(AppError::BadRequest("Invalid command name".to_string()));
+    }
+    if body.nick.trim().is_empty() {
+        return Err(AppError::BadRequest("Nick is required".to_string()));
     }
 
     if !*state.hub_state.connected.read().await {
         return Err(AppError::HubDisconnected);
     }
 
-    let nick = &state.config.hub.nickname;
+    let safe_nick = sanitize_nmdc(&body.nick);
     let safe_args = sanitize_nmdc(&body.args);
     let command_text = if safe_args.is_empty() {
         format!("-{}", name)
@@ -103,11 +107,10 @@ pub async fn execute_command(
         format!("-{} {}", name, safe_args)
     };
 
-    // Send as public chat
-    let nmdc_cmd = format!("<{}> {}|", nick, command_text);
+    let cmd = format!("$DataToAll <{}> {}|", safe_nick, command_text);
     state
-        .nmdc_tx
-        .send(nmdc_cmd)
+        .admin_tx
+        .send(cmd)
         .await
         .map_err(|e| AppError::Internal(format!("Failed to send command: {}", e)))?;
 

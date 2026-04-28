@@ -38,16 +38,6 @@ pub struct GagRequest {
     pub reason: String,
 }
 
-/// Helper: ensure the admin channel is available.
-async fn require_admin(state: &AppState) -> Result<(), AppError> {
-    if state.config.admin.is_none() {
-        return Err(AppError::Internal(
-            "Admin port not configured; moderation commands unavailable".to_string(),
-        ));
-    }
-    Ok(())
-}
-
 /// POST /api/users/:nick/kick
 ///
 /// Kick a user from the hub via the admin port.
@@ -57,7 +47,7 @@ pub async fn kick_user(
     Json(body): Json<KickRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     validate_nick(&nick)?;
-    require_admin(&state).await?;
+
 
     // Verify user is online
     let is_online = state.hub_state.users.read().await.contains_key(&nick);
@@ -92,7 +82,7 @@ pub async fn ban_user(
     Json(body): Json<BanRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     validate_nick(&nick)?;
-    require_admin(&state).await?;
+
 
     // If an IP is provided, ban by IP (sanitized); otherwise look up the user's nick to ban
     let ban_target = if let Some(ref ip) = body.ip {
@@ -124,7 +114,7 @@ pub async fn unban_user(
     Path(nick): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     validate_nick(&nick)?;
-    require_admin(&state).await?;
+
 
     let cmd = format!("$RemoveBanEntry {}|", nick);
     state
@@ -148,7 +138,7 @@ pub async fn gag_user(
     Json(body): Json<GagRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     validate_nick(&nick)?;
-    require_admin(&state).await?;
+
 
     let cmd = format!("$AddGagEntry {}|", nick);
     state
@@ -172,7 +162,7 @@ pub async fn ungag_user(
     Path(nick): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     validate_nick(&nick)?;
-    require_admin(&state).await?;
+
 
     let cmd = format!("$RemoveGagEntry {}|", nick);
     state
@@ -208,7 +198,7 @@ pub async fn register_user(
     Json(body): Json<RegisterRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     validate_nick(&body.nick)?;
-    require_admin(&state).await?;
+
 
     if body.password.is_empty() {
         return Err(AppError::BadRequest("Password cannot be empty".to_string()));
@@ -249,7 +239,7 @@ pub async fn unregister_user(
     Path(nick): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     validate_nick(&nick)?;
-    require_admin(&state).await?;
+
 
     let cmd = format!("$RemoveRegUser {}|", nick);
     state

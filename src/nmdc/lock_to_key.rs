@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 /// Convert an NMDC $Lock challenge into a $Key response.
 ///
 /// The algorithm:
