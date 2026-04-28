@@ -26,8 +26,12 @@ pub async fn create_tell(
     State(state): State<AppState>,
     Json(body): Json<CreateTellRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let pool = state.db_pool.as_ref().ok_or_else(|| AppError::Internal("No database".into()))?;
-    let id = queries::create_tell(pool.inner(), &body.from_nick, &body.to_nick, &body.message).await?;
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("No database".into()))?;
+    let id =
+        queries::create_tell(pool.inner(), &body.from_nick, &body.to_nick, &body.message).await?;
     Ok(Json(serde_json::json!({"id": id, "status": "created"})))
 }
 
@@ -35,16 +39,24 @@ pub async fn get_pending_tells(
     State(state): State<AppState>,
     Path(nick): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let pool = state.db_pool.as_ref().ok_or_else(|| AppError::Internal("No database".into()))?;
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("No database".into()))?;
     let tells = queries::get_pending_tells(pool.inner(), &nick).await?;
-    Ok(Json(serde_json::json!({"tells": tells, "count": tells.len()})))
+    Ok(Json(
+        serde_json::json!({"tells": tells, "count": tells.len()}),
+    ))
 }
 
 pub async fn mark_tell_delivered(
     State(state): State<AppState>,
     Path(id): Path<i32>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let pool = state.db_pool.as_ref().ok_or_else(|| AppError::Internal("No database".into()))?;
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("No database".into()))?;
     queries::mark_tell_delivered(pool.inner(), id).await?;
     Ok(Json(serde_json::json!({"status": "delivered"})))
 }
@@ -67,9 +79,24 @@ pub async fn create_ban(
     State(state): State<AppState>,
     Json(body): Json<CreateBanRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let pool = state.db_pool.as_ref().ok_or_else(|| AppError::Internal("No database".into()))?;
-    let expires = body.expires_at.as_ref().and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok().map(|d| d.with_timezone(&chrono::Utc)));
-    let id = queries::create_ban(pool.inner(), body.nick.as_deref(), body.ip.as_deref(), &body.reason, &body.banned_by, expires).await?;
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("No database".into()))?;
+    let expires = body.expires_at.as_ref().and_then(|s| {
+        chrono::DateTime::parse_from_rfc3339(s)
+            .ok()
+            .map(|d| d.with_timezone(&chrono::Utc))
+    });
+    let id = queries::create_ban(
+        pool.inner(),
+        body.nick.as_deref(),
+        body.ip.as_deref(),
+        &body.reason,
+        &body.banned_by,
+        expires,
+    )
+    .await?;
     Ok(Json(serde_json::json!({"id": id, "status": "created"})))
 }
 
@@ -77,16 +104,24 @@ pub async fn check_ban(
     State(state): State<AppState>,
     Path(nick): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let pool = state.db_pool.as_ref().ok_or_else(|| AppError::Internal("No database".into()))?;
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("No database".into()))?;
     let ban = queries::check_ban(pool.inner(), &nick).await?;
-    Ok(Json(serde_json::json!({"banned": ban.is_some(), "ban": ban})))
+    Ok(Json(
+        serde_json::json!({"banned": ban.is_some(), "ban": ban}),
+    ))
 }
 
 pub async fn delete_ban(
     State(state): State<AppState>,
     Path(id): Path<i32>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let pool = state.db_pool.as_ref().ok_or_else(|| AppError::Internal("No database".into()))?;
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("No database".into()))?;
     let deleted = queries::delete_ban(pool.inner(), id).await?;
     Ok(Json(serde_json::json!({"deleted": deleted})))
 }
@@ -99,7 +134,10 @@ pub async fn get_user(
     State(state): State<AppState>,
     Path(nick): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let pool = state.db_pool.as_ref().ok_or_else(|| AppError::Internal("No database".into()))?;
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("No database".into()))?;
     match queries::get_user(pool.inner(), &nick).await? {
         Some(user) => Ok(Json(serde_json::json!(user))),
         None => Err(AppError::NotFound(format!("User '{}' not found", nick))),
@@ -119,18 +157,26 @@ pub async fn user_connect(
     Path(nick): Path<String>,
     Json(body): Json<UserConnectRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let pool = state.db_pool.as_ref().ok_or_else(|| AppError::Internal("No database".into()))?;
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("No database".into()))?;
     let user_id = queries::upsert_user(pool.inner(), &nick, "", 0, "", "").await?;
     let session_id = queries::open_session(pool.inner(), user_id, &body.ip, body.tls).await?;
     let user = queries::get_user(pool.inner(), &nick).await?;
-    Ok(Json(serde_json::json!({"user": user, "session_id": session_id})))
+    Ok(Json(
+        serde_json::json!({"user": user, "session_id": session_id}),
+    ))
 }
 
 pub async fn user_disconnect(
     State(state): State<AppState>,
     Path(nick): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let pool = state.db_pool.as_ref().ok_or_else(|| AppError::Internal("No database".into()))?;
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("No database".into()))?;
     queries::close_sessions(pool.inner(), &nick).await?;
     queries::update_last_seen(pool.inner(), &nick).await?;
     Ok(Json(serde_json::json!({"status": "disconnected"})))
@@ -151,8 +197,12 @@ pub async fn create_quote(
     State(state): State<AppState>,
     Json(body): Json<CreateQuoteRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let pool = state.db_pool.as_ref().ok_or_else(|| AppError::Internal("No database".into()))?;
-    let id = queries::create_quote(pool.inner(), &body.nick, &body.quote_text, &body.added_by).await?;
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("No database".into()))?;
+    let id =
+        queries::create_quote(pool.inner(), &body.nick, &body.quote_text, &body.added_by).await?;
     Ok(Json(serde_json::json!({"id": id, "status": "created"})))
 }
 
@@ -165,7 +215,10 @@ pub async fn random_quote(
     State(state): State<AppState>,
     Query(params): Query<QuoteQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let pool = state.db_pool.as_ref().ok_or_else(|| AppError::Internal("No database".into()))?;
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("No database".into()))?;
     let quote = queries::random_quote(pool.inner(), params.nick.as_deref()).await?;
     Ok(Json(serde_json::json!({"quote": quote})))
 }
@@ -184,7 +237,10 @@ pub async fn create_watch(
     State(state): State<AppState>,
     Json(body): Json<CreateWatchRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let pool = state.db_pool.as_ref().ok_or_else(|| AppError::Internal("No database".into()))?;
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("No database".into()))?;
     queries::create_watch(pool.inner(), &body.watcher_nick, &body.watched_nick).await?;
     Ok(Json(serde_json::json!({"status": "created"})))
 }
@@ -193,16 +249,24 @@ pub async fn get_watchers(
     State(state): State<AppState>,
     Path(nick): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let pool = state.db_pool.as_ref().ok_or_else(|| AppError::Internal("No database".into()))?;
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("No database".into()))?;
     let watchers = queries::get_watchers(pool.inner(), &nick).await?;
-    Ok(Json(serde_json::json!({"watchers": watchers, "count": watchers.len()})))
+    Ok(Json(
+        serde_json::json!({"watchers": watchers, "count": watchers.len()}),
+    ))
 }
 
 pub async fn delete_watch(
     State(state): State<AppState>,
     Path((watcher, watched)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let pool = state.db_pool.as_ref().ok_or_else(|| AppError::Internal("No database".into()))?;
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("No database".into()))?;
     let deleted = queries::delete_watch(pool.inner(), &watcher, &watched).await?;
     Ok(Json(serde_json::json!({"deleted": deleted})))
 }
@@ -214,7 +278,10 @@ pub async fn delete_watch(
 pub async fn get_current_stats(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let pool = state.db_pool.as_ref().ok_or_else(|| AppError::Internal("No database".into()))?;
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("No database".into()))?;
     let stats = queries::get_stats_history(pool.inner(), 1).await?;
     Ok(Json(serde_json::json!({"stats": stats.first()})))
 }
@@ -229,7 +296,10 @@ pub async fn create_stats_snapshot(
     State(state): State<AppState>,
     Json(body): Json<SnapshotRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let pool = state.db_pool.as_ref().ok_or_else(|| AppError::Internal("No database".into()))?;
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("No database".into()))?;
     queries::insert_stats_snapshot(pool.inner(), body.user_count, body.total_share).await?;
     Ok(Json(serde_json::json!({"status": "created"})))
 }
@@ -254,16 +324,30 @@ pub async fn search_chat(
     State(state): State<AppState>,
     Query(params): Query<ChatSearchQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let pool = state.db_pool.as_ref().ok_or_else(|| AppError::Internal("No database".into()))?;
-    let results = queries::search_chat(pool.inner(), &params.q, params.nick.as_deref(), params.limit.min(100)).await?;
-    Ok(Json(serde_json::json!({"results": results, "count": results.len()})))
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("No database".into()))?;
+    let results = queries::search_chat(
+        pool.inner(),
+        &params.q,
+        params.nick.as_deref(),
+        params.limit.min(100),
+    )
+    .await?;
+    Ok(Json(
+        serde_json::json!({"results": results, "count": results.len()}),
+    ))
 }
 
 pub async fn first_message(
     State(state): State<AppState>,
     Path(nick): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let pool = state.db_pool.as_ref().ok_or_else(|| AppError::Internal("No database".into()))?;
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("No database".into()))?;
     let msg = queries::first_message(pool.inner(), &nick).await?;
     Ok(Json(serde_json::json!({"message": msg})))
 }
@@ -272,7 +356,10 @@ pub async fn last_message(
     State(state): State<AppState>,
     Path(nick): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let pool = state.db_pool.as_ref().ok_or_else(|| AppError::Internal("No database".into()))?;
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("No database".into()))?;
     let msg = queries::last_message(pool.inner(), &nick).await?;
     Ok(Json(serde_json::json!({"message": msg})))
 }
@@ -294,9 +381,23 @@ pub async fn create_gag(
     State(state): State<AppState>,
     Json(body): Json<CreateGagRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let pool = state.db_pool.as_ref().ok_or_else(|| AppError::Internal("No database".into()))?;
-    let expires = body.expires_at.as_ref().and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok().map(|d| d.with_timezone(&chrono::Utc)));
-    let id = queries::create_gag(pool.inner(), &body.nick, &body.reason, &body.gagged_by, expires).await?;
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("No database".into()))?;
+    let expires = body.expires_at.as_ref().and_then(|s| {
+        chrono::DateTime::parse_from_rfc3339(s)
+            .ok()
+            .map(|d| d.with_timezone(&chrono::Utc))
+    });
+    let id = queries::create_gag(
+        pool.inner(),
+        &body.nick,
+        &body.reason,
+        &body.gagged_by,
+        expires,
+    )
+    .await?;
     Ok(Json(serde_json::json!({"id": id, "status": "created"})))
 }
 
@@ -304,16 +405,24 @@ pub async fn check_gag(
     State(state): State<AppState>,
     Path(nick): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let pool = state.db_pool.as_ref().ok_or_else(|| AppError::Internal("No database".into()))?;
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("No database".into()))?;
     let gag = queries::check_gag(pool.inner(), &nick).await?;
-    Ok(Json(serde_json::json!({"gagged": gag.is_some(), "gag": gag})))
+    Ok(Json(
+        serde_json::json!({"gagged": gag.is_some(), "gag": gag}),
+    ))
 }
 
 pub async fn delete_gag(
     State(state): State<AppState>,
     Path(id): Path<i32>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let pool = state.db_pool.as_ref().ok_or_else(|| AppError::Internal("No database".into()))?;
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("No database".into()))?;
     let deleted = queries::delete_gag(pool.inner(), id).await?;
     Ok(Json(serde_json::json!({"deleted": deleted})))
 }
@@ -326,19 +435,30 @@ pub async fn list_data(
     State(state): State<AppState>,
     Path(namespace): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let pool = state.db_pool.as_ref().ok_or_else(|| AppError::Internal("No database".into()))?;
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("No database".into()))?;
     let entries = queries::list_bot_data(pool.inner(), &namespace).await?;
-    Ok(Json(serde_json::json!({"entries": entries, "count": entries.len()})))
+    Ok(Json(
+        serde_json::json!({"entries": entries, "count": entries.len()}),
+    ))
 }
 
 pub async fn get_data(
     State(state): State<AppState>,
     Path((namespace, key)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let pool = state.db_pool.as_ref().ok_or_else(|| AppError::Internal("No database".into()))?;
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("No database".into()))?;
     match queries::get_bot_data(pool.inner(), &namespace, &key).await? {
         Some(entry) => Ok(Json(serde_json::json!(entry))),
-        None => Err(AppError::NotFound(format!("{}/{} not found", namespace, key))),
+        None => Err(AppError::NotFound(format!(
+            "{}/{} not found",
+            namespace, key
+        ))),
     }
 }
 
@@ -352,7 +472,10 @@ pub async fn set_data(
     Path((namespace, key)): Path<(String, String)>,
     Json(body): Json<SetDataRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let pool = state.db_pool.as_ref().ok_or_else(|| AppError::Internal("No database".into()))?;
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("No database".into()))?;
     queries::set_bot_data(pool.inner(), &namespace, &key, &body.value).await?;
     Ok(Json(serde_json::json!({"status": "set"})))
 }
@@ -361,7 +484,10 @@ pub async fn delete_data(
     State(state): State<AppState>,
     Path((namespace, key)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let pool = state.db_pool.as_ref().ok_or_else(|| AppError::Internal("No database".into()))?;
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("No database".into()))?;
     let deleted = queries::delete_bot_data(pool.inner(), &namespace, &key).await?;
     Ok(Json(serde_json::json!({"deleted": deleted})))
 }
@@ -384,7 +510,11 @@ pub async fn register_bot(
     if let Some(ref engine) = state.command_engine {
         engine.disable_commands(&body.commands).await;
     }
-    tracing::info!("Bot '{}' registered, claiming commands: {:?}", body.nick, body.commands);
+    tracing::info!(
+        "Bot '{}' registered, claiming commands: {:?}",
+        body.nick,
+        body.commands
+    );
     Ok(Json(serde_json::json!({
         "status": "registered",
         "nick": body.nick,

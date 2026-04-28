@@ -144,10 +144,7 @@ async fn connect_and_run(
 }
 
 /// Send a length-prefixed JSON message over the Unix socket.
-async fn send_json(
-    stream: &mut UnixStream,
-    json: &str,
-) -> Result<(), std::io::Error> {
+async fn send_json(stream: &mut UnixStream, json: &str) -> Result<(), std::io::Error> {
     let len = json.len() as u32;
     stream.write_all(&len.to_be_bytes()).await?;
     stream.write_all(json.as_bytes()).await?;
@@ -156,7 +153,9 @@ async fn send_json(
 }
 
 /// Read a single length-prefixed JSON message from the Unix socket.
-async fn read_json(stream: &mut UnixStream) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+async fn read_json(
+    stream: &mut UnixStream,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let mut len_buf = [0u8; 4];
     stream.read_exact(&mut len_buf).await?;
     let msg_len = u32::from_be_bytes(len_buf) as usize;
@@ -175,7 +174,11 @@ async fn handle_event(json_str: &str, event_bus: &Arc<EventBus>, hub_state: &Arc
     let value: serde_json::Value = match serde_json::from_str(json_str) {
         Ok(v) => v,
         Err(e) => {
-            warn!("Failed to parse hub event: {}: {}", e, &json_str[..json_str.len().min(200)]);
+            warn!(
+                "Failed to parse hub event: {}: {}",
+                e,
+                &json_str[..json_str.len().min(200)]
+            );
             return;
         }
     };
@@ -207,7 +210,11 @@ async fn handle_event(json_str: &str, event_bus: &Arc<EventBus>, hub_state: &Arc
         }
 
         "user_quit" => {
-            let nick = value.get("nick").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let nick = value
+                .get("nick")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
 
             // Remove from state
             hub_state.users.write().await.remove(&nick);
@@ -219,10 +226,26 @@ async fn handle_event(json_str: &str, event_bus: &Arc<EventBus>, hub_state: &Arc
         }
 
         "myinfo" => {
-            let nick = value.get("nick").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let description = value.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let speed = value.get("speed").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let email = value.get("email").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let nick = value
+                .get("nick")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let description = value
+                .get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let speed = value
+                .get("speed")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let email = value
+                .get("email")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             let share = value.get("share").and_then(|v| v.as_f64()).unwrap_or(0.0) as u64;
 
             // Update user in state
@@ -249,8 +272,16 @@ async fn handle_event(json_str: &str, event_bus: &Arc<EventBus>, hub_state: &Arc
         }
 
         "kick" => {
-            let nick = value.get("nick").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let by = value.get("by").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let nick = value
+                .get("nick")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let by = value
+                .get("by")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
 
             event_bus.publish(HubEvent::Kick {
                 nick,
@@ -294,7 +325,11 @@ async fn handle_event(json_str: &str, event_bus: &Arc<EventBus>, hub_state: &Arc
                 ops.clear();
 
                 for u in users {
-                    let nick = u.get("nick").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let nick = u
+                        .get("nick")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     if nick.is_empty() {
                         continue;
                     }
@@ -310,9 +345,21 @@ async fn handle_event(json_str: &str, event_bus: &Arc<EventBus>, hub_state: &Arc
                         nick.clone(),
                         HubUser {
                             nick: nick.clone(),
-                            description: u.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                            speed: u.get("speed").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                            email: u.get("email").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                            description: u
+                                .get("description")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            speed: u
+                                .get("speed")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            email: u
+                                .get("email")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
                             share: u.get("share").and_then(|v| v.as_f64()).unwrap_or(0.0) as u64,
                             is_op,
                         },
@@ -329,7 +376,10 @@ async fn handle_event(json_str: &str, event_bus: &Arc<EventBus>, hub_state: &Arc
         "auth_ok" | "auth_failed" | "error" => {
             // Handled during connection setup or logged
             if event_type == "error" {
-                let msg = value.get("message").and_then(|v| v.as_str()).unwrap_or("unknown");
+                let msg = value
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
                 warn!("Hub error: {}", msg);
             }
         }
@@ -340,4 +390,3 @@ async fn handle_event(json_str: &str, event_bus: &Arc<EventBus>, hub_state: &Arc
         }
     }
 }
-

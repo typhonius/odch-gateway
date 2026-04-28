@@ -30,8 +30,13 @@ pub enum CommandResponse {
 }
 
 /// A command handler function.
-pub type CommandHandler =
-    Box<dyn Fn(CommandContext) -> std::pin::Pin<Box<dyn std::future::Future<Output = CommandResponse> + Send>> + Send + Sync>;
+pub type CommandHandler = Box<
+    dyn Fn(
+            CommandContext,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = CommandResponse> + Send>>
+        + Send
+        + Sync,
+>;
 
 /// The command registry.
 pub struct CommandEngine {
@@ -53,12 +58,7 @@ impl CommandEngine {
     }
 
     /// Register a command handler.
-    pub fn register(
-        &mut self,
-        name: &str,
-        aliases: &[&str],
-        handler: CommandHandler,
-    ) {
+    pub fn register(&mut self, name: &str, aliases: &[&str], handler: CommandHandler) {
         self.commands.insert(name.to_string(), handler);
         for alias in aliases {
             self.aliases.insert(alias.to_string(), name.to_string());
@@ -142,5 +142,4 @@ impl CommandEngine {
             }
         }
     }
-
 }

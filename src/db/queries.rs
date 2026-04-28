@@ -297,7 +297,10 @@ pub async fn create_quote(
     Ok(id)
 }
 
-pub async fn random_quote(pool: &PgPool, nick: Option<&str>) -> Result<Option<QuoteRecord>, AppError> {
+pub async fn random_quote(
+    pool: &PgPool,
+    nick: Option<&str>,
+) -> Result<Option<QuoteRecord>, AppError> {
     let row = if let Some(nick) = nick {
         sqlx::query_as::<_, QuoteRecord>(
             "SELECT id, nick, quote_text, added_by, created_at \
@@ -345,13 +348,11 @@ pub async fn get_watchers(pool: &PgPool, nick: &str) -> Result<Vec<WatchRecord>,
 }
 
 pub async fn delete_watch(pool: &PgPool, watcher: &str, watched: &str) -> Result<bool, AppError> {
-    let result = sqlx::query(
-        "DELETE FROM watches WHERE watcher_nick = $1 AND watched_nick = $2",
-    )
-    .bind(watcher)
-    .bind(watched)
-    .execute(pool)
-    .await?;
+    let result = sqlx::query("DELETE FROM watches WHERE watcher_nick = $1 AND watched_nick = $2")
+        .bind(watcher)
+        .bind(watched)
+        .execute(pool)
+        .await?;
     Ok(result.rows_affected() > 0)
 }
 
@@ -372,10 +373,7 @@ pub async fn insert_stats_snapshot(
     Ok(())
 }
 
-pub async fn get_stats_history(
-    pool: &PgPool,
-    limit: i64,
-) -> Result<Vec<StatsSnapshot>, AppError> {
+pub async fn get_stats_history(pool: &PgPool, limit: i64) -> Result<Vec<StatsSnapshot>, AppError> {
     let rows = sqlx::query_as::<_, StatsSnapshot>(
         "SELECT id, user_count, total_share, created_at \
          FROM stats_snapshots ORDER BY created_at DESC LIMIT $1",
@@ -449,10 +447,7 @@ pub async fn get_bot_data(
     Ok(entry)
 }
 
-pub async fn list_bot_data(
-    pool: &PgPool,
-    namespace: &str,
-) -> Result<Vec<BotDataEntry>, AppError> {
+pub async fn list_bot_data(pool: &PgPool, namespace: &str) -> Result<Vec<BotDataEntry>, AppError> {
     let entries = sqlx::query_as::<_, BotDataEntry>(
         "SELECT namespace, key, value, updated_at FROM bot_data WHERE namespace = $1 ORDER BY key",
     )

@@ -16,10 +16,7 @@ impl DbPool {
 
 /// Create a PostgreSQL connection pool and run migrations.
 pub async fn create_pool(url: &str) -> Result<DbPool, sqlx::Error> {
-    let pool = PgPoolOptions::new()
-        .max_connections(8)
-        .connect(url)
-        .await?;
+    let pool = PgPoolOptions::new().max_connections(8).connect(url).await?;
 
     // Run migrations
     sqlx::migrate!("./migrations")

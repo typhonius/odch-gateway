@@ -106,9 +106,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Connect to hub via Unix socket
-    let hub_config = config.hub.clone()
+    let hub_config = config
+        .hub
+        .clone()
         .ok_or("No [hub] section in config. Set socket_path and secret.")?;
-    tracing::info!("Connecting to hub via Unix socket: {}", hub_config.socket_path);
+    tracing::info!(
+        "Connecting to hub via Unix socket: {}",
+        hub_config.socket_path
+    );
     {
         let bus = event_bus.clone();
         let state = hub_state.clone();
@@ -138,9 +143,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             loop {
                 match rx.recv().await {
-                    Ok(crate::event::HubEvent::Chat { ref nick, ref message, .. }) => {
+                    Ok(crate::event::HubEvent::Chat {
+                        ref nick,
+                        ref message,
+                        ..
+                    }) => {
                         let tx: tokio::sync::mpsc::Sender<String> = (*bot_tx).clone();
-                        if let Some(response) = bot_engine.try_handle(nick, message, bot_pool.clone(), tx.clone()).await {
+                        if let Some(response) = bot_engine
+                            .try_handle(nick, message, bot_pool.clone(), tx.clone())
+                            .await
+                        {
                             bot_engine.send_response(response, nick, &tx).await;
                         }
                     }
@@ -202,12 +214,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Admin UI server (if configured)
     if let Some(ref admin_ui_config) = config.admin_ui {
         let admin_router = admin_ui::build_admin_router(app_state);
-        let admin_listener =
-            tokio::net::TcpListener::bind(&admin_ui_config.bind_address).await?;
-        tracing::info!(
-            "Admin UI listening on {}",
-            admin_ui_config.bind_address
-        );
+        let admin_listener = tokio::net::TcpListener::bind(&admin_ui_config.bind_address).await?;
+        tracing::info!("Admin UI listening on {}", admin_ui_config.bind_address);
         let admin_token = cancel_token.clone();
         tokio::spawn(async move {
             if let Err(e) = axum::serve(admin_listener, admin_router)
