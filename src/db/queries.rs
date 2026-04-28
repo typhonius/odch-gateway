@@ -1,384 +1,490 @@
-use crate::db::models::{ChatHistoryEntry, UserRecord, WatchdogEntry};
-use crate::db::pool::DbPool;
+use chrono::{DateTime, Utc};
+use sqlx::PgPool;
+
+use crate::db::models::*;
 use crate::error::AppError;
 
 // ---------------------------------------------------------------------------
-// Public query functions
+// Users
 // ---------------------------------------------------------------------------
 
-/// Look up a single user by nickname.
-pub async fn get_user(pool: &DbPool, nick: &str) -> Result<Option<UserRecord>, AppError> {
+pub async fn get_user(pool: &PgPool, nick: &str) -> Result<Option<UserRecord>, AppError> {
     let user = sqlx::query_as::<_, UserRecord>(
-        "SELECT name, ip, share, description, email, speed, \
-                connect_time, disconnect_time, permission \
-         FROM users WHERE name = $1",
+        "SELECT id, nick, email, permission, share_size, description, speed, \
+                first_seen, last_seen, created_at \
+         FROM users WHERE nick = $1",
     )
     .bind(nick)
-    .fetch_optional(pool.inner())
+    .fetch_optional(pool)
     .await?;
-
     Ok(user)
 }
 
-/// List users ordered by most-recent login, with pagination.
-#[allow(dead_code)]
-pub async fn list_users(
-    pool: &DbPool,
-    limit: i64,
-    offset: i64,
-) -> Result<Vec<UserRecord>, AppError> {
-    let users = sqlx::query_as::<_, UserRecord>(
-        "SELECT name, ip, share, description, email, speed, \
-                connect_time, disconnect_time, permission \
-         FROM users ORDER BY connect_time DESC LIMIT $1 OFFSET $2",
+pub async fn upsert_user(
+    pool: &PgPool,
+    nick: &str,
+    email: &str,
+    share_size: i64,
+    description: &str,
+    speed: &str,
+) -> Result<i32, AppError> {
+    let rec = sqlx::query_scalar::<_, i32>(
+        "INSERT INTO users (nick, email, share_size, description, speed, first_seen, last_seen) \
+         VALUES ($1, $2, $3, $4, $5, NOW(), NOW()) \
+         ON CONFLICT (nick) DO UPDATE SET \
+           email = EXCLUDED.email, share_size = EXCLUDED.share_size, \
+           description = EXCLUDED.description, speed = EXCLUDED.speed, \
+           last_seen = NOW() \
+         RETURNING id",
     )
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(pool.inner())
+    .bind(nick)
+    .bind(email)
+    .bind(share_size)
+    .bind(description)
+    .bind(speed)
+    .fetch_one(pool)
     .await?;
-
-    Ok(users)
+    Ok(rec)
 }
 
-/// Return the most recent chat history lines (newest first), with pagination.
-///
-/// The history table stores `uid` references, so we JOIN to get the nick.
+pub async fn update_last_seen(pool: &PgPool, nick: &str) -> Result<(), AppError> {
+    sqlx::query("UPDATE users SET last_seen = NOW() WHERE nick = $1")
+        .bind(nick)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Sessions
+// ---------------------------------------------------------------------------
+
+pub async fn open_session(
+    pool: &PgPool,
+    user_id: i32,
+    ip: &str,
+    tls: bool,
+) -> Result<i32, AppError> {
+    let id = sqlx::query_scalar::<_, i32>(
+        "INSERT INTO user_sessions (user_id, login_at, ip_address, tls) \
+         VALUES ($1, NOW(), $2, $3) RETURNING id",
+    )
+    .bind(user_id)
+    .bind(ip)
+    .bind(tls)
+    .fetch_one(pool)
+    .await?;
+    Ok(id)
+}
+
+pub async fn close_sessions(pool: &PgPool, nick: &str) -> Result<(), AppError> {
+    sqlx::query(
+        "UPDATE user_sessions SET logout_at = NOW() \
+         WHERE user_id = (SELECT id FROM users WHERE nick = $1) \
+           AND logout_at IS NULL",
+    )
+    .bind(nick)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Chat
+// ---------------------------------------------------------------------------
+
+pub async fn insert_chat(pool: &PgPool, nick: &str, message: &str) -> Result<(), AppError> {
+    sqlx::query("INSERT INTO chat_messages (nick, message) VALUES ($1, $2)")
+        .bind(nick)
+        .bind(message)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 pub async fn get_chat_history(
-    pool: &DbPool,
+    pool: &PgPool,
     limit: i64,
     offset: i64,
-) -> Result<Vec<ChatHistoryEntry>, AppError> {
-    let history = sqlx::query_as::<_, ChatHistoryEntry>(
-        "SELECT h.hid, u.name AS nickname, h.chat, h.time \
-         FROM history h \
-         JOIN users u ON u.uid = h.uid \
-         ORDER BY h.hid DESC \
-         LIMIT $1 OFFSET $2",
+) -> Result<Vec<ChatMessage>, AppError> {
+    let rows = sqlx::query_as::<_, ChatMessage>(
+        "SELECT id, nick, message, created_at \
+         FROM chat_messages ORDER BY created_at DESC LIMIT $1 OFFSET $2",
     )
     .bind(limit)
     .bind(offset)
-    .fetch_all(pool.inner())
+    .fetch_all(pool)
     .await?;
-
-    Ok(history)
+    Ok(rows)
 }
 
-/// Return chat history for a specific user (newest first), with pagination.
 pub async fn get_user_chat_history(
-    pool: &DbPool,
+    pool: &PgPool,
     nick: &str,
     limit: i64,
     offset: i64,
-) -> Result<Vec<ChatHistoryEntry>, AppError> {
-    let history = sqlx::query_as::<_, ChatHistoryEntry>(
-        "SELECT h.hid, u.name AS nickname, h.chat, h.time \
-         FROM history h \
-         JOIN users u ON u.uid = h.uid \
-         WHERE u.name = $1 \
-         ORDER BY h.hid DESC \
-         LIMIT $2 OFFSET $3",
+) -> Result<Vec<ChatMessage>, AppError> {
+    let rows = sqlx::query_as::<_, ChatMessage>(
+        "SELECT id, nick, message, created_at \
+         FROM chat_messages WHERE nick = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
     )
     .bind(nick)
     .bind(limit)
     .bind(offset)
-    .fetch_all(pool.inner())
+    .fetch_all(pool)
     .await?;
-
-    Ok(history)
+    Ok(rows)
 }
 
-/// Return recent hub snapshots from the stats table.
-///
-/// Handles both v3 (`watchdog` table with `wid, users, share`) and
-/// v4 (`stats` table with `sid, number_users, total_share`) schemas by
-/// probing for the table that exists and aliasing columns.
-pub async fn get_hub_stats(pool: &DbPool, limit: i64) -> Result<Vec<WatchdogEntry>, AppError> {
-    let sql = if table_exists(pool, "stats").await {
-        "SELECT CAST(sid AS BIGINT) AS id, CAST(number_users AS BIGINT) AS users_online, \
-                CAST(total_share AS BIGINT) AS total_share, CAST(time AS BIGINT) AS time \
-         FROM stats ORDER BY sid DESC LIMIT $1"
-    } else if table_exists(pool, "watchdog").await {
-        "SELECT CAST(wid AS BIGINT) AS id, CAST(users AS BIGINT) AS users_online, \
-                CAST(share AS BIGINT) AS total_share, CAST(time AS BIGINT) AS time \
-         FROM watchdog ORDER BY wid DESC LIMIT $1"
-    } else {
-        return Ok(Vec::new());
-    };
-
-    let stats = sqlx::query_as::<_, WatchdogEntry>(sql)
+pub async fn search_chat(
+    pool: &PgPool,
+    query: &str,
+    nick: Option<&str>,
+    limit: i64,
+) -> Result<Vec<ChatMessage>, AppError> {
+    let pattern = format!("%{}%", query);
+    let rows = if let Some(nick) = nick {
+        sqlx::query_as::<_, ChatMessage>(
+            "SELECT id, nick, message, created_at \
+             FROM chat_messages WHERE message ILIKE $1 AND nick = $2 \
+             ORDER BY created_at DESC LIMIT $3",
+        )
+        .bind(&pattern)
+        .bind(nick)
         .bind(limit)
-        .fetch_all(pool.inner())
-        .await?;
-
-    Ok(stats)
-}
-
-/// Helper: check whether a table exists in the database.
-///
-/// Uses `sqlite_master` for SQLite and `information_schema.tables` for Postgres.
-pub async fn table_exists(pool: &DbPool, name: &str) -> bool {
-    let sql = if pool.is_postgres() {
-        "SELECT 1 FROM information_schema.tables WHERE table_name = $1"
+        .fetch_all(pool)
+        .await?
     } else {
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name = $1"
+        sqlx::query_as::<_, ChatMessage>(
+            "SELECT id, nick, message, created_at \
+             FROM chat_messages WHERE message ILIKE $1 \
+             ORDER BY created_at DESC LIMIT $2",
+        )
+        .bind(&pattern)
+        .bind(limit)
+        .fetch_all(pool)
+        .await?
     };
+    Ok(rows)
+}
 
-    sqlx::query(sql)
-        .bind(name)
-        .fetch_optional(pool.inner())
-        .await
-        .ok()
-        .flatten()
-        .is_some()
+pub async fn first_message(pool: &PgPool, nick: &str) -> Result<Option<ChatMessage>, AppError> {
+    let row = sqlx::query_as::<_, ChatMessage>(
+        "SELECT id, nick, message, created_at \
+         FROM chat_messages WHERE nick = $1 ORDER BY created_at ASC LIMIT 1",
+    )
+    .bind(nick)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row)
+}
+
+pub async fn last_message(pool: &PgPool, nick: &str) -> Result<Option<ChatMessage>, AppError> {
+    let row = sqlx::query_as::<_, ChatMessage>(
+        "SELECT id, nick, message, created_at \
+         FROM chat_messages WHERE nick = $1 ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(nick)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row)
 }
 
 // ---------------------------------------------------------------------------
-// Tests
+// Bans
 // ---------------------------------------------------------------------------
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::db::pool::create_test_pool;
+pub async fn create_ban(
+    pool: &PgPool,
+    nick: Option<&str>,
+    ip: Option<&str>,
+    reason: &str,
+    banned_by: &str,
+    expires_at: Option<DateTime<Utc>>,
+) -> Result<i32, AppError> {
+    let id = sqlx::query_scalar::<_, i32>(
+        "INSERT INTO bans (nick, ip, reason, banned_by, expires_at) \
+         VALUES ($1, $2, $3, $4, $5) RETURNING id",
+    )
+    .bind(nick)
+    .bind(ip)
+    .bind(reason)
+    .bind(banned_by)
+    .bind(expires_at)
+    .fetch_one(pool)
+    .await?;
+    Ok(id)
+}
 
-    /// Execute multiple SQL statements separated by semicolons.
-    async fn execute_batch(pool: &DbPool, sql: &str) {
-        for statement in sql.split(';') {
-            let trimmed = statement.trim();
-            // Skip empty chunks and comment-only chunks
-            let has_sql = trimmed
-                .lines()
-                .any(|l| !l.trim().is_empty() && !l.trim().starts_with("--"));
-            if has_sql {
-                sqlx::query(trimmed)
-                    .execute(pool.inner())
-                    .await
-                    .unwrap_or_else(|e| panic!("batch exec failed on: {trimmed}\nerror: {e}"));
-            }
-        }
-    }
+pub async fn check_ban(pool: &PgPool, nick: &str) -> Result<Option<BanRecord>, AppError> {
+    let ban = sqlx::query_as::<_, BanRecord>(
+        "SELECT id, nick, ip, reason, banned_by, created_at, expires_at \
+         FROM bans WHERE nick = $1 AND (expires_at IS NULL OR expires_at > NOW()) \
+         ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(nick)
+    .fetch_optional(pool)
+    .await?;
+    Ok(ban)
+}
 
-    /// Set up the in-memory database with the v4 schema and some seed data.
-    async fn seed_db(pool: &DbPool) {
-        execute_batch(
-            pool,
-            "CREATE TABLE users (
-                uid             INTEGER PRIMARY KEY AUTOINCREMENT,
-                name            TEXT    NOT NULL,
-                ip              TEXT    DEFAULT '',
-                email           TEXT    DEFAULT '',
-                share           INTEGER DEFAULT 0,
-                share_delta     INTEGER DEFAULT 0,
-                permission      INTEGER DEFAULT 4,
-                connect_time    INTEGER,
-                disconnect_time INTEGER,
-                description     TEXT    DEFAULT '',
-                speed           TEXT    DEFAULT ''
-            );
+pub async fn delete_ban(pool: &PgPool, id: i32) -> Result<bool, AppError> {
+    let result = sqlx::query("DELETE FROM bans WHERE id = $1")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected() > 0)
+}
 
-            CREATE TABLE history (
-                hid  INTEGER PRIMARY KEY AUTOINCREMENT,
-                time INTEGER NOT NULL,
-                uid  INTEGER NOT NULL,
-                chat TEXT    NOT NULL
-            );
+// ---------------------------------------------------------------------------
+// Tells
+// ---------------------------------------------------------------------------
 
-            CREATE TABLE stats (
-                sid            INTEGER PRIMARY KEY AUTOINCREMENT,
-                time           INTEGER NOT NULL,
-                number_users   INTEGER DEFAULT 0,
-                total_share    INTEGER DEFAULT 0,
-                connections    INTEGER DEFAULT 0,
-                disconnections INTEGER DEFAULT 0
-            );
+pub async fn create_tell(
+    pool: &PgPool,
+    from_nick: &str,
+    to_nick: &str,
+    message: &str,
+) -> Result<i32, AppError> {
+    let id = sqlx::query_scalar::<_, i32>(
+        "INSERT INTO tells (from_nick, to_nick, message) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(from_nick)
+    .bind(to_nick)
+    .bind(message)
+    .fetch_one(pool)
+    .await?;
+    Ok(id)
+}
 
-            -- Seed users
-            INSERT INTO users (name, ip, share, description, email, speed, connect_time, disconnect_time, permission)
-                VALUES ('alice', '10.0.0.1', 1024, 'Alice desc', 'alice@example.com', 'LAN(T1)', 1700000000, NULL, 8);
-            INSERT INTO users (name, ip, share, description, email, speed, connect_time, disconnect_time, permission)
-                VALUES ('bob', '10.0.0.2', 2048, 'Bob desc', 'bob@example.com', '56Kbps', 1700000100, 1700000200, 4);
-            INSERT INTO users (name, ip, share, description, email, speed, connect_time, disconnect_time, permission)
-                VALUES ('charlie', '10.0.0.3', 4096, 'Charlie desc', '', 'Cable', 1700000050, NULL, 16);
+pub async fn get_pending_tells(pool: &PgPool, nick: &str) -> Result<Vec<TellRecord>, AppError> {
+    let tells = sqlx::query_as::<_, TellRecord>(
+        "SELECT id, from_nick, to_nick, message, created_at, delivered_at \
+         FROM tells WHERE to_nick = $1 AND delivered_at IS NULL ORDER BY created_at ASC",
+    )
+    .bind(nick)
+    .fetch_all(pool)
+    .await?;
+    Ok(tells)
+}
 
-            -- Seed history (uid references users.uid)
-            INSERT INTO history (time, uid, chat) VALUES (1700000010, 1, 'Hello everyone!');
-            INSERT INTO history (time, uid, chat) VALUES (1700000020, 2, 'Hi alice!');
-            INSERT INTO history (time, uid, chat) VALUES (1700000030, 1, 'How are you?');
-            INSERT INTO history (time, uid, chat) VALUES (1700000040, 3, 'I am the operator.');
+pub async fn mark_tell_delivered(pool: &PgPool, id: i32) -> Result<(), AppError> {
+    sqlx::query("UPDATE tells SET delivered_at = NOW() WHERE id = $1")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
 
-            -- Seed stats
-            INSERT INTO stats (time, number_users, total_share) VALUES (1700000000, 3, 7168);
-            INSERT INTO stats (time, number_users, total_share) VALUES (1700000060, 2, 3072);
-            INSERT INTO stats (time, number_users, total_share) VALUES (1700000120, 3, 7168)",
+// ---------------------------------------------------------------------------
+// Quotes
+// ---------------------------------------------------------------------------
+
+pub async fn create_quote(
+    pool: &PgPool,
+    nick: &str,
+    quote_text: &str,
+    added_by: &str,
+) -> Result<i32, AppError> {
+    let id = sqlx::query_scalar::<_, i32>(
+        "INSERT INTO quotes (nick, quote_text, added_by) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(nick)
+    .bind(quote_text)
+    .bind(added_by)
+    .fetch_one(pool)
+    .await?;
+    Ok(id)
+}
+
+pub async fn random_quote(pool: &PgPool, nick: Option<&str>) -> Result<Option<QuoteRecord>, AppError> {
+    let row = if let Some(nick) = nick {
+        sqlx::query_as::<_, QuoteRecord>(
+            "SELECT id, nick, quote_text, added_by, created_at \
+             FROM quotes WHERE nick = $1 ORDER BY RANDOM() LIMIT 1",
         )
-        .await;
-    }
-
-    #[tokio::test]
-    async fn test_get_user_found() {
-        let pool = create_test_pool().await;
-        seed_db(&pool).await;
-
-        let user = get_user(&pool, "alice").await.unwrap();
-        assert!(user.is_some());
-        let user = user.unwrap();
-        assert_eq!(user.nick, "alice");
-        assert_eq!(user.ip, "10.0.0.1");
-        assert_eq!(user.share, 1024);
-        assert_eq!(user.description, "Alice desc");
-        assert_eq!(user.email, "alice@example.com");
-        assert_eq!(user.speed, "LAN(T1)");
-        assert_eq!(user.connect_time, Some(1700000000));
-        assert!(user.disconnect_time.is_none());
-        assert_eq!(user.permissions, 8);
-    }
-
-    #[tokio::test]
-    async fn test_get_user_not_found() {
-        let pool = create_test_pool().await;
-        seed_db(&pool).await;
-
-        let user = get_user(&pool, "nonexistent").await.unwrap();
-        assert!(user.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_list_users_all() {
-        let pool = create_test_pool().await;
-        seed_db(&pool).await;
-
-        let users = list_users(&pool, 100, 0).await.unwrap();
-        assert_eq!(users.len(), 3);
-        // Ordered by connect_time DESC: bob(1700000100), charlie(1700000050), alice(1700000000)
-        assert_eq!(users[0].nick, "bob");
-        assert_eq!(users[1].nick, "charlie");
-        assert_eq!(users[2].nick, "alice");
-    }
-
-    #[tokio::test]
-    async fn test_list_users_pagination() {
-        let pool = create_test_pool().await;
-        seed_db(&pool).await;
-
-        let page1 = list_users(&pool, 2, 0).await.unwrap();
-        assert_eq!(page1.len(), 2);
-        assert_eq!(page1[0].nick, "bob");
-        assert_eq!(page1[1].nick, "charlie");
-
-        let page2 = list_users(&pool, 2, 2).await.unwrap();
-        assert_eq!(page2.len(), 1);
-        assert_eq!(page2[0].nick, "alice");
-    }
-
-    #[tokio::test]
-    async fn test_get_chat_history() {
-        let pool = create_test_pool().await;
-        seed_db(&pool).await;
-
-        let history = get_chat_history(&pool, 10, 0).await.unwrap();
-        assert_eq!(history.len(), 4);
-        // Ordered by hid DESC (newest first)
-        assert_eq!(history[0].nickname, "charlie");
-        assert_eq!(history[0].chat, "I am the operator.");
-        assert_eq!(history[1].nickname, "alice");
-        assert_eq!(history[1].chat, "How are you?");
-        assert_eq!(history[3].nickname, "alice");
-        assert_eq!(history[3].chat, "Hello everyone!");
-    }
-
-    #[tokio::test]
-    async fn test_get_chat_history_pagination() {
-        let pool = create_test_pool().await;
-        seed_db(&pool).await;
-
-        let page = get_chat_history(&pool, 2, 1).await.unwrap();
-        assert_eq!(page.len(), 2);
-        // Skip 1 (the newest), get next 2
-        assert_eq!(page[0].chat, "How are you?");
-        assert_eq!(page[1].chat, "Hi alice!");
-    }
-
-    #[tokio::test]
-    async fn test_get_user_chat_history() {
-        let pool = create_test_pool().await;
-        seed_db(&pool).await;
-
-        let history = get_user_chat_history(&pool, "alice", 10, 0).await.unwrap();
-        assert_eq!(history.len(), 2);
-        assert_eq!(history[0].chat, "How are you?");
-        assert_eq!(history[1].chat, "Hello everyone!");
-    }
-
-    #[tokio::test]
-    async fn test_get_user_chat_history_no_results() {
-        let pool = create_test_pool().await;
-        seed_db(&pool).await;
-
-        let history = get_user_chat_history(&pool, "nonexistent", 10, 0)
-            .await
-            .unwrap();
-        assert!(history.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_get_hub_stats_v4() {
-        let pool = create_test_pool().await;
-        seed_db(&pool).await;
-
-        let stats = get_hub_stats(&pool, 10).await.unwrap();
-        assert_eq!(stats.len(), 3);
-        // Ordered by sid DESC (newest first)
-        assert_eq!(stats[0].users_online, 3);
-        assert_eq!(stats[0].total_share, 7168);
-        assert_eq!(stats[0].timestamp, 1700000120);
-        assert_eq!(stats[1].users_online, 2);
-        assert_eq!(stats[1].total_share, 3072);
-    }
-
-    #[tokio::test]
-    async fn test_get_hub_stats_v3_fallback() {
-        let pool = create_test_pool().await;
-
-        // Create v3 watchdog table instead of v4 stats.
-        execute_batch(
-            &pool,
-            "CREATE TABLE watchdog (
-                wid             INTEGER PRIMARY KEY AUTOINCREMENT,
-                time            INTEGER,
-                users           INTEGER,
-                share           INTEGER,
-                connections     INTEGER,
-                disconnections  INTEGER,
-                searches        INTEGER
-            );
-            INSERT INTO watchdog (time, users, share) VALUES (1700000000, 5, 9000);
-            INSERT INTO watchdog (time, users, share) VALUES (1700000060, 7, 12000)",
+        .bind(nick)
+        .fetch_optional(pool)
+        .await?
+    } else {
+        sqlx::query_as::<_, QuoteRecord>(
+            "SELECT id, nick, quote_text, added_by, created_at \
+             FROM quotes ORDER BY RANDOM() LIMIT 1",
         )
-        .await;
+        .fetch_optional(pool)
+        .await?
+    };
+    Ok(row)
+}
 
-        let stats = get_hub_stats(&pool, 10).await.unwrap();
-        assert_eq!(stats.len(), 2);
-        // Ordered by wid DESC
-        assert_eq!(stats[0].users_online, 7);
-        assert_eq!(stats[0].total_share, 12000);
-        assert_eq!(stats[1].users_online, 5);
-    }
+// ---------------------------------------------------------------------------
+// Watches
+// ---------------------------------------------------------------------------
 
-    #[tokio::test]
-    async fn test_get_hub_stats_no_table() {
-        let pool = create_test_pool().await;
-        // Empty DB, no stats or watchdog table
-        let stats = get_hub_stats(&pool, 10).await.unwrap();
-        assert!(stats.is_empty());
-    }
+pub async fn create_watch(pool: &PgPool, watcher: &str, watched: &str) -> Result<(), AppError> {
+    sqlx::query(
+        "INSERT INTO watches (watcher_nick, watched_nick) VALUES ($1, $2) \
+         ON CONFLICT (watcher_nick, watched_nick) DO NOTHING",
+    )
+    .bind(watcher)
+    .bind(watched)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
 
-    #[tokio::test]
-    async fn test_get_hub_stats_limit() {
-        let pool = create_test_pool().await;
-        seed_db(&pool).await;
+pub async fn get_watchers(pool: &PgPool, nick: &str) -> Result<Vec<WatchRecord>, AppError> {
+    let rows = sqlx::query_as::<_, WatchRecord>(
+        "SELECT id, watcher_nick, watched_nick, created_at \
+         FROM watches WHERE watched_nick = $1",
+    )
+    .bind(nick)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
 
-        let stats = get_hub_stats(&pool, 1).await.unwrap();
-        assert_eq!(stats.len(), 1);
-        assert_eq!(stats[0].timestamp, 1700000120);
-    }
+pub async fn delete_watch(pool: &PgPool, watcher: &str, watched: &str) -> Result<bool, AppError> {
+    let result = sqlx::query(
+        "DELETE FROM watches WHERE watcher_nick = $1 AND watched_nick = $2",
+    )
+    .bind(watcher)
+    .bind(watched)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
+}
+
+// ---------------------------------------------------------------------------
+// Stats
+// ---------------------------------------------------------------------------
+
+pub async fn insert_stats_snapshot(
+    pool: &PgPool,
+    user_count: i32,
+    total_share: i64,
+) -> Result<(), AppError> {
+    sqlx::query("INSERT INTO stats_snapshots (user_count, total_share) VALUES ($1, $2)")
+        .bind(user_count)
+        .bind(total_share)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn get_stats_history(
+    pool: &PgPool,
+    limit: i64,
+) -> Result<Vec<StatsSnapshot>, AppError> {
+    let rows = sqlx::query_as::<_, StatsSnapshot>(
+        "SELECT id, user_count, total_share, created_at \
+         FROM stats_snapshots ORDER BY created_at DESC LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+// ---------------------------------------------------------------------------
+// Gags
+// ---------------------------------------------------------------------------
+
+pub async fn create_gag(
+    pool: &PgPool,
+    nick: &str,
+    reason: &str,
+    gagged_by: &str,
+    expires_at: Option<DateTime<Utc>>,
+) -> Result<i32, AppError> {
+    let id = sqlx::query_scalar::<_, i32>(
+        "INSERT INTO gags (nick, reason, gagged_by, expires_at) \
+         VALUES ($1, $2, $3, $4) RETURNING id",
+    )
+    .bind(nick)
+    .bind(reason)
+    .bind(gagged_by)
+    .bind(expires_at)
+    .fetch_one(pool)
+    .await?;
+    Ok(id)
+}
+
+pub async fn check_gag(pool: &PgPool, nick: &str) -> Result<Option<GagRecord>, AppError> {
+    let gag = sqlx::query_as::<_, GagRecord>(
+        "SELECT id, nick, reason, gagged_by, created_at, expires_at \
+         FROM gags WHERE nick = $1 AND (expires_at IS NULL OR expires_at > NOW()) \
+         ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(nick)
+    .fetch_optional(pool)
+    .await?;
+    Ok(gag)
+}
+
+pub async fn delete_gag(pool: &PgPool, id: i32) -> Result<bool, AppError> {
+    let result = sqlx::query("DELETE FROM gags WHERE id = $1")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected() > 0)
+}
+
+// ---------------------------------------------------------------------------
+// Bot data (key-value storage)
+// ---------------------------------------------------------------------------
+
+pub async fn get_bot_data(
+    pool: &PgPool,
+    namespace: &str,
+    key: &str,
+) -> Result<Option<BotDataEntry>, AppError> {
+    let entry = sqlx::query_as::<_, BotDataEntry>(
+        "SELECT namespace, key, value, updated_at FROM bot_data WHERE namespace = $1 AND key = $2",
+    )
+    .bind(namespace)
+    .bind(key)
+    .fetch_optional(pool)
+    .await?;
+    Ok(entry)
+}
+
+pub async fn list_bot_data(
+    pool: &PgPool,
+    namespace: &str,
+) -> Result<Vec<BotDataEntry>, AppError> {
+    let entries = sqlx::query_as::<_, BotDataEntry>(
+        "SELECT namespace, key, value, updated_at FROM bot_data WHERE namespace = $1 ORDER BY key",
+    )
+    .bind(namespace)
+    .fetch_all(pool)
+    .await?;
+    Ok(entries)
+}
+
+pub async fn set_bot_data(
+    pool: &PgPool,
+    namespace: &str,
+    key: &str,
+    value: &str,
+) -> Result<(), AppError> {
+    sqlx::query(
+        "INSERT INTO bot_data (namespace, key, value, updated_at) VALUES ($1, $2, $3, NOW()) \
+         ON CONFLICT (namespace, key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
+    )
+    .bind(namespace)
+    .bind(key)
+    .bind(value)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn delete_bot_data(pool: &PgPool, namespace: &str, key: &str) -> Result<bool, AppError> {
+    let result = sqlx::query("DELETE FROM bot_data WHERE namespace = $1 AND key = $2")
+        .bind(namespace)
+        .bind(key)
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected() > 0)
 }

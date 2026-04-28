@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod bot;
 pub mod chat;
 pub mod commands;
 pub mod hub;
@@ -93,6 +94,49 @@ pub fn build_router(state: AppState) -> Router {
                 auth::require_api_key,
             ));
 
+    // Bot API routes (separate auth: X-Bot-Key)
+    let bot_routes = Router::new()
+        // Tells
+        .route("/tells", post(bot::create_tell))
+        .route("/tells/:nick", get(bot::get_pending_tells))
+        .route("/tells/:id/deliver", delete(bot::mark_tell_delivered))
+        // Bans
+        .route("/bans", post(bot::create_ban))
+        .route("/bans/check/:nick", get(bot::check_ban))
+        .route("/bans/:id", delete(bot::delete_ban))
+        // Users
+        .route("/users/:nick", get(bot::get_user))
+        .route("/users/:nick/connect", post(bot::user_connect))
+        .route("/users/:nick/disconnect", post(bot::user_disconnect))
+        // Quotes
+        .route("/quotes", post(bot::create_quote))
+        .route("/quotes/random", get(bot::random_quote))
+        // Watches
+        .route("/watches", post(bot::create_watch))
+        .route("/watches/:nick", get(bot::get_watchers))
+        .route("/watches/:watcher/:watched", delete(bot::delete_watch))
+        // Stats
+        .route("/stats/current", get(bot::get_current_stats))
+        .route("/stats/snapshot", post(bot::create_stats_snapshot))
+        // Chat search
+        .route("/chat/search", get(bot::search_chat))
+        .route("/chat/first/:nick", get(bot::first_message))
+        .route("/chat/last/:nick", get(bot::last_message))
+        // Gags
+        .route("/gags", post(bot::create_gag))
+        .route("/gags/check/:nick", get(bot::check_gag))
+        .route("/gags/:id", delete(bot::delete_gag))
+        // Key-value storage
+        .route("/data/:namespace", get(bot::list_data))
+        .route("/data/:namespace/:key", get(bot::get_data))
+        .route("/data/:namespace/:key", put(bot::set_data))
+        .route("/data/:namespace/:key", delete(bot::delete_data))
+        // Bot registration
+        .route("/register", post(bot::register_bot))
+        .route("/register", delete(bot::unregister_bot));
+    // TODO: Add X-Bot-Key auth middleware when [bot] config section is added.
+    // For now bot routes use the same API key auth as external endpoints.
+
     // WebSocket (uses query param auth, not middleware)
     let ws_route = Router::new().route("/ws", get(websocket::ws_handler));
 
@@ -101,6 +145,10 @@ pub fn build_router(state: AppState) -> Router {
 
     Router::new()
         .nest("/api/v1", api_routes)
+        .nest("/api/v1/bot", bot_routes.layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth::require_api_key,
+        )))
         .nest("/api", Router::new().fallback(legacy_api_redirect))
         .merge(ws_route)
         .merge(health_route)
@@ -137,7 +185,7 @@ async fn legacy_api_redirect(req: Request) -> Response {
 mod tests {
     use super::*;
     use crate::bus::EventBus;
-    use crate::config::{AdminConfig, AppConfig, AuthConfig, ServerConfig};
+    use crate::config::{AppConfig, AuthConfig, ServerConfig};
     use crate::state::{AppState, HubState};
     use crate::webhook::manager::WebhookManager;
     use axum::body::Body;
@@ -151,11 +199,7 @@ mod tests {
                 bind_address: "127.0.0.1:8080".to_string(),
                 cors_origins: vec![],
             },
-            admin: AdminConfig {
-                host: "localhost".to_string(),
-                port: 53696,
-                password: "test".to_string(),
-            },
+            hub: None,
             database: None,
             auth: AuthConfig {
                 api_keys: vec!["test-key".to_string()],
@@ -173,6 +217,7 @@ mod tests {
             db_pool: None,
             webhook_manager: Arc::new(WebhookManager::in_memory(10)),
             ws_connections: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            command_engine: None,
         }
     }
 

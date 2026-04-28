@@ -55,7 +55,7 @@ pub async fn require_api_key(
 mod tests {
     use super::*;
     use crate::bus::EventBus;
-    use crate::config::{AdminConfig, AppConfig, AuthConfig, ServerConfig};
+    use crate::config::{AppConfig, AuthConfig, ServerConfig};
     use crate::state::{AppState, HubState};
     use crate::webhook::manager::WebhookManager;
     use axum::body::Body;
@@ -72,11 +72,7 @@ mod tests {
                 bind_address: "127.0.0.1:8080".to_string(),
                 cors_origins: vec![],
             },
-            admin: AdminConfig {
-                host: "localhost".to_string(),
-                port: 53696,
-                password: "test".to_string(),
-            },
+            hub: None,
             database: None,
             auth: AuthConfig {
                 api_keys: vec!["valid-key-123".to_string()],
@@ -94,6 +90,7 @@ mod tests {
             db_pool: None,
             webhook_manager: Arc::new(WebhookManager::in_memory(10)),
             ws_connections: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            command_engine: None,
         }
     }
 

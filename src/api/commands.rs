@@ -1,88 +1,75 @@
 use axum::extract::{Path, State};
 use axum::Json;
 use serde::Deserialize;
-use sqlx::{Column, Row};
 
 use crate::api::chat::sanitize_nmdc;
-use crate::db::queries;
 use crate::error::AppError;
 use crate::state::AppState;
 
 /// GET /api/commands
 ///
-/// List available bot commands. Attempts to read from a `commands` or
-/// `registry` table in the database. If the table does not exist, returns
-/// a static list of known commands.
+/// List available bot commands from the bot_commands table.
 pub async fn list_commands(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    // Try to read commands from DB if available
     if let Some(ref pool) = state.db_pool {
-        let table = if queries::table_exists(pool, "registry").await {
-            Some("registry")
-        } else if queries::table_exists(pool, "commands").await {
-            Some("commands")
-        } else {
-            None
-        };
+        let rows = sqlx::query_as::<_, crate::db::models::BotCommandRecord>(
+            "SELECT name, description, aliases, permission, enabled FROM bot_commands ORDER BY name",
+        )
+        .fetch_all(pool.inner())
+        .await;
 
-        if let Some(table_name) = table {
-            let sql = format!("SELECT * FROM {}", table_name);
-            let rows = sqlx::query(&sql).fetch_all(pool.inner()).await?;
-
-            let mut commands = Vec::new();
-            for row in &rows {
-                let mut map = serde_json::Map::new();
-                for col in row.columns() {
-                    let val = if let Ok(s) = row.try_get::<String, _>(col.ordinal()) {
-                        serde_json::Value::String(s)
-                    } else if let Ok(n) = row.try_get::<i64, _>(col.ordinal()) {
-                        serde_json::Value::Number(n.into())
-                    } else {
-                        serde_json::Value::Null
-                    };
-                    map.insert(col.name().to_string(), val);
-                }
-                commands.push(serde_json::Value::Object(map));
+        match rows {
+            Ok(commands) => {
+                return Ok(Json(serde_json::json!({
+                    "commands": commands,
+                    "source": "database",
+                })));
             }
-
-            return Ok(Json(serde_json::json!({
-                "commands": commands,
-                "source": "database",
-            })));
+            Err(e) => {
+                tracing::warn!("Failed to query bot_commands: {}", e);
+            }
         }
     }
 
-    // Fallback: return a static list of common bot commands
+    // Fallback: return built-in command list
     let commands = serde_json::json!([
-        {"name": "help", "description": "Show available commands"},
-        {"name": "time", "description": "Show current time"},
-        {"name": "uptime", "description": "Show bot uptime"},
-        {"name": "seen", "description": "Check when a user was last seen"},
+        {"name": "ban", "description": "Ban a user"},
+        {"name": "unban", "description": "Remove a ban"},
+        {"name": "kick", "description": "Kick a user"},
+        {"name": "gag", "description": "Mute a user"},
+        {"name": "ungag", "description": "Unmute a user"},
+        {"name": "tell", "description": "Leave an offline message"},
+        {"name": "history", "description": "Show chat history"},
+        {"name": "search", "description": "Search chat history"},
+        {"name": "stats", "description": "Show hub statistics"},
+        {"name": "seen", "description": "When was a user last online"},
+        {"name": "first", "description": "First message by a user"},
+        {"name": "last", "description": "Last message by a user"},
+        {"name": "quote", "description": "Random quote"},
+        {"name": "watch", "description": "Get notified when a user logs in"},
+        {"name": "unwatch", "description": "Stop watching a user"},
         {"name": "info", "description": "Show user info"},
-        {"name": "commands", "description": "List all commands"},
+        {"name": "topic", "description": "Set hub topic"},
+        {"name": "help", "description": "Show available commands"},
     ]);
 
     Ok(Json(serde_json::json!({
         "commands": commands,
-        "source": "static",
+        "source": "builtin",
     })))
 }
 
 #[derive(Deserialize)]
 pub struct ExecuteCommandRequest {
-    /// Nick to execute the command as. Required.
     pub nick: String,
-    /// Optional arguments passed to the command.
     #[serde(default)]
     pub args: String,
 }
 
 /// POST /api/commands/:name/execute
 ///
-/// Execute a bot command by sending it as a chat message via the admin port.
-/// The command is prefixed with `-` (the standard odchbot command prefix)
-/// and broadcast as the specified nick.
+/// Execute a bot command by sending it as a chat message via the hub.
 pub async fn execute_command(
     State(state): State<AppState>,
     Path(name): Path<String>,
@@ -102,12 +89,13 @@ pub async fn execute_command(
     let safe_nick = sanitize_nmdc(&body.nick);
     let safe_args = sanitize_nmdc(&body.args);
     let command_text = if safe_args.is_empty() {
-        format!("-{}", name)
+        format!("!{}", name)
     } else {
-        format!("-{} {}", name, safe_args)
+        format!("!{} {}", name, safe_args)
     };
 
-    let cmd = format!("$DataToAll <{}> {}|", safe_nick, command_text);
+    let cmd = serde_json::json!({"type": "send_all", "message": format!("<{}> {}", safe_nick, command_text)}).to_string();
+
     state
         .admin_tx
         .send(cmd)

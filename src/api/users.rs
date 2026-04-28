@@ -15,11 +15,10 @@ pub struct OnlineUser {
     pub share: u64,
     pub is_op: bool,
     pub online: bool,
-    /// Additional DB-sourced fields (if available)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub connect_time: Option<i64>,
+    pub first_seen: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub permissions: Option<i64>,
+    pub permission: Option<i16>,
 }
 
 #[derive(Deserialize)]
@@ -35,13 +34,10 @@ fn default_limit() -> i64 {
 }
 
 /// GET /api/users
-///
-/// Returns online users from HubState, optionally enriched with DB data.
 pub async fn list_users(
     State(state): State<AppState>,
     Query(params): Query<UsersQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    // Clone user data so the read lock is released before async DB queries.
     let users: Vec<_> = state
         .hub_state
         .users
@@ -61,25 +57,22 @@ pub async fn list_users(
             share: u.share,
             is_op: u.is_op,
             online: true,
-            connect_time: None,
-            permissions: None,
+            first_seen: None,
+            permission: None,
         };
 
-        // Enrich from DB if available
         if let Some(ref pool) = state.db_pool {
-            if let Ok(Some(db_user)) = queries::get_user(pool, &u.nick).await {
-                online_user.connect_time = db_user.connect_time;
-                online_user.permissions = Some(db_user.permissions);
+            if let Ok(Some(db_user)) = queries::get_user(pool.inner(), &u.nick).await {
+                online_user.first_seen = db_user.first_seen.map(|t| t.to_rfc3339());
+                online_user.permission = Some(db_user.permission);
             }
         }
 
         result.push(online_user);
     }
 
-    // Sort by nick for consistent ordering
     result.sort_by(|a, b| a.nick.cmp(&b.nick));
 
-    // Apply pagination
     let offset = params.offset.max(0) as usize;
     let limit = params.limit.clamp(1, 1000) as usize;
     let total = result.len();
@@ -94,8 +87,6 @@ pub async fn list_users(
 }
 
 /// GET /api/users/:nick
-///
-/// Returns a single user's details (live data + DB enrichment).
 pub async fn get_user(
     State(state): State<AppState>,
     Path(nick): Path<String>,
@@ -104,9 +95,8 @@ pub async fn get_user(
     let live_user = users.get(&nick).cloned();
     drop(users);
 
-    // Also look up DB record
     let db_user = match state.db_pool.as_ref() {
-        Some(pool) => queries::get_user(pool, &nick).await.ok().flatten(),
+        Some(pool) => queries::get_user(pool.inner(), &nick).await.ok().flatten(),
         None => None,
     };
 
@@ -124,30 +114,25 @@ pub async fn get_user(
             });
 
             if let Some(ref db) = db_user {
-                response["connect_time"] = serde_json::json!(db.connect_time);
-                response["disconnect_time"] = serde_json::json!(db.disconnect_time);
-                response["permissions"] = serde_json::json!(db.permissions);
-                response["ip"] = serde_json::json!(db.ip);
+                response["first_seen"] = serde_json::json!(db.first_seen);
+                response["last_seen"] = serde_json::json!(db.last_seen);
+                response["permission"] = serde_json::json!(db.permission);
             }
 
             Ok(Json(response))
         }
-        (None, Some(db)) => {
-            // User not online, but found in DB
-            Ok(Json(serde_json::json!({
-                "nick": db.nick,
-                "description": db.description,
-                "speed": db.speed,
-                "email": db.email,
-                "share": db.share,
-                "is_op": false,
-                "online": false,
-                "ip": db.ip,
-                "connect_time": db.connect_time,
-                "disconnect_time": db.disconnect_time,
-                "permissions": db.permissions,
-            })))
-        }
+        (None, Some(db)) => Ok(Json(serde_json::json!({
+            "nick": db.nick,
+            "description": db.description,
+            "speed": db.speed,
+            "email": db.email,
+            "share": db.share_size,
+            "is_op": false,
+            "online": false,
+            "first_seen": db.first_seen,
+            "last_seen": db.last_seen,
+            "permission": db.permission,
+        }))),
     }
 }
 
@@ -164,8 +149,6 @@ fn default_history_limit() -> i64 {
 }
 
 /// GET /api/users/:nick/history
-///
-/// Returns the user's chat history from DB.
 pub async fn get_user_history(
     State(state): State<AppState>,
     Path(nick): Path<String>,
@@ -179,7 +162,7 @@ pub async fn get_user_history(
     let limit = params.limit.clamp(1, 500);
     let offset = params.offset.max(0);
 
-    let history = queries::get_user_chat_history(pool, &nick, limit, offset).await?;
+    let history = queries::get_user_chat_history(pool.inner(), &nick, limit, offset).await?;
 
     Ok(Json(serde_json::json!({
         "nick": nick,

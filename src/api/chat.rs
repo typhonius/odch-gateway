@@ -39,7 +39,7 @@ pub async fn get_chat_history(
     let limit = params.limit.clamp(1, 500);
     let offset = params.offset.max(0);
 
-    let history = queries::get_chat_history(pool, limit, offset).await?;
+    let history = queries::get_chat_history(pool.inner(), limit, offset).await?;
 
     Ok(Json(serde_json::json!({
         "history": history,
@@ -77,7 +77,7 @@ pub async fn send_message(
 
     let safe_nick = sanitize_nmdc(&body.nick);
     let safe_message = sanitize_nmdc(&body.message);
-    let cmd = format!("$DataToAll <{}> {}|", safe_nick, safe_message);
+    let cmd = serde_json::json!({"type": "send_all", "message": format!("<{}> {}", safe_nick, safe_message)}).to_string();
     state
         .admin_tx
         .send(cmd)

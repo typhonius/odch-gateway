@@ -4,7 +4,6 @@ use serde::Serialize;
 /// Hub events that flow through the event bus.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", content = "data")]
-#[allow(dead_code)]
 pub enum HubEvent {
     Chat {
         nick: String,

@@ -1,11 +1,12 @@
 mod admin_ui;
 mod api;
+mod bot;
 mod bus;
 mod config;
 mod db;
 mod error;
 mod event;
-mod nmdc;
+mod hub;
 mod state;
 mod webhook;
 
@@ -86,6 +87,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         webhook_config.max_webhooks,
     ));
 
+    // Create command engine (if DB is configured)
+    let command_engine = if db_pool.is_some() {
+        Some(Arc::new(bot::CommandEngine::new()))
+    } else {
+        None
+    };
+
     let app_state = AppState {
         config: config.clone(),
         event_bus: event_bus.clone(),
@@ -94,17 +102,54 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         db_pool,
         webhook_manager: webhook_manager.clone(),
         ws_connections: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        command_engine: command_engine.clone(),
     };
 
-    // The gateway operates entirely through the admin port — no NMDC client
-    // connection needed. The admin port provides: event stream, status data,
-    // user list, moderation commands, $DataToAll for chat, and user registration.
+    // Connect to hub via Unix socket
+    let hub_config = config.hub.clone()
+        .ok_or("No [hub] section in config. Set socket_path and secret.")?;
+    tracing::info!("Connecting to hub via Unix socket: {}", hub_config.socket_path);
     {
-        let admin_config = config.admin.clone();
         let bus = event_bus.clone();
         let state = hub_state.clone();
         tokio::spawn(async move {
-            nmdc::admin::run(admin_config, bus, state, admin_rx).await;
+            hub::socket::run(hub_config, bus, state, admin_rx).await;
+        });
+    }
+
+    // Spawn event processor (stores events in DB)
+    if let Some(ref pool) = app_state.db_pool {
+        let ep_bus = event_bus.clone();
+        let ep_pool = pool.clone();
+        tokio::spawn(async move {
+            db::event_processor::run(ep_bus, ep_pool).await;
+        });
+    }
+
+    // Spawn built-in bot command processor
+    if let (Some(ref pool), Some(ref engine)) = (&app_state.db_pool, &command_engine) {
+        let bot_bus = event_bus.clone();
+        let bot_pool = pool.inner().clone();
+        let bot_tx = app_state.admin_tx.clone();
+        let bot_engine = engine.clone();
+        tokio::spawn(async move {
+            let mut rx = bot_bus.subscribe();
+
+            loop {
+                match rx.recv().await {
+                    Ok(crate::event::HubEvent::Chat { ref nick, ref message, .. }) => {
+                        let tx: tokio::sync::mpsc::Sender<String> = (*bot_tx).clone();
+                        if let Some(response) = bot_engine.try_handle(nick, message, bot_pool.clone(), tx.clone()).await {
+                            bot_engine.send_response(response, nick, &tx).await;
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!("Bot command processor lagged by {} events", n);
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
         });
     }
 

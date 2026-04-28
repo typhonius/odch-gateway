@@ -4,12 +4,21 @@ use std::fmt;
 #[derive(Deserialize, Clone)]
 pub struct AppConfig {
     pub server: ServerConfig,
-    pub admin: AdminConfig,
+    /// Unix socket connection to hub
+    pub hub: Option<HubSocketConfig>,
     pub database: Option<DatabaseConfig>,
     pub auth: AuthConfig,
     pub webhook: Option<WebhookConfig>,
     pub rate_limit: Option<RateLimitConfig>,
     pub admin_ui: Option<AdminUiConfig>,
+}
+
+#[derive(Deserialize, Clone)]
+pub struct HubSocketConfig {
+    /// Path to the Unix domain socket (e.g. "/opt/opendchub/.opendchub/gateway.sock")
+    pub socket_path: String,
+    /// Shared secret for authentication
+    pub secret: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -20,17 +29,9 @@ pub struct ServerConfig {
 }
 
 #[derive(Deserialize, Clone)]
-pub struct AdminConfig {
-    pub host: String,
-    pub port: u16,
-    pub password: String,
-}
-
-#[derive(Deserialize, Clone)]
 pub struct DatabaseConfig {
-    /// Connection URL. Examples:
-    ///   sqlite:///path/to/odchbot.db?mode=ro
-    ///   postgres://user:pass@localhost:5432/odchbot
+    /// PostgreSQL connection URL. Example:
+    ///   postgres://odch:password@localhost:5432/odch
     pub url: String,
 }
 
@@ -98,7 +99,7 @@ impl fmt::Debug for AppConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AppConfig")
             .field("server", &self.server)
-            .field("admin", &format!("AdminConfig {{ host: {:?}, port: {} }}", self.admin.host, self.admin.port))
+            .field("hub", &self.hub.as_ref().map(|h| format!("HubSocketConfig {{ path: {:?} }}", h.socket_path)))
             .field("database", &"[REDACTED]")
             .field("auth", &format!("[{} key(s)]", self.auth.api_keys.len()))
             .field("admin_ui", &self.admin_ui.as_ref().map(|a| format!("AdminUiConfig {{ bind: {:?} }}", a.bind_address)))
