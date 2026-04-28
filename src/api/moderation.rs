@@ -177,15 +177,24 @@ pub async fn register_user(
         ));
     }
 
-    send_hub_command(
-        &state,
-        serde_json::json!({
-            "type": "register_user",
-            "nick": body.nick,
-            "password": body.password,
-            "permission": body.reg_type,
-        }),
+    // Store registration in gateway's database (not the hub's reglist)
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("Database not configured".into()))?;
+
+    let password_hash = bcrypt::hash(&body.password, 10)
+        .map_err(|e| AppError::Internal(format!("Failed to hash password: {}", e)))?;
+
+    sqlx::query(
+        "INSERT INTO users (nick, password_hash, permission) VALUES ($1, $2, $3) \
+         ON CONFLICT (nick) DO UPDATE SET password_hash = EXCLUDED.password_hash, \
+         permission = EXCLUDED.permission",
     )
+    .bind(&body.nick)
+    .bind(&password_hash)
+    .bind(body.reg_type as i16)
+    .execute(pool.inner())
     .await?;
 
     Ok(Json(serde_json::json!({
@@ -202,14 +211,16 @@ pub async fn unregister_user(
 ) -> Result<Json<serde_json::Value>, AppError> {
     validate_nick(&nick)?;
 
-    send_hub_command(
-        &state,
-        serde_json::json!({
-            "type": "unregister_user",
-            "nick": nick,
-        }),
-    )
-    .await?;
+    // Clear registration from gateway database
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("Database not configured".into()))?;
+
+    sqlx::query("UPDATE users SET password_hash = NULL, permission = 0 WHERE nick = $1")
+        .bind(&nick)
+        .execute(pool.inner())
+        .await?;
 
     Ok(Json(serde_json::json!({
         "status": "unregistered",
