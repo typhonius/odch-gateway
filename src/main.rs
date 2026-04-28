@@ -117,12 +117,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    // Spawn event processor (stores events in DB)
+    // Spawn event processor (stores events in DB, delivers tells, notifies watchers)
     if let Some(ref pool) = app_state.db_pool {
         let ep_bus = event_bus.clone();
         let ep_pool = pool.clone();
+        let ep_tx = app_state.admin_tx.as_ref().clone();
         tokio::spawn(async move {
-            db::event_processor::run(ep_bus, ep_pool).await;
+            db::event_processor::run(ep_bus, ep_pool, ep_tx).await;
         });
     }
 
