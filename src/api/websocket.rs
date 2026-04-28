@@ -41,7 +41,7 @@ pub async fn ws_handler(
     headers: axum::http::HeaderMap,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
-    // Validate: API key via query param OR valid JWT session cookie (admin UI)
+    // Validate: API key, session cookie, OR short-lived WS token
     let has_api_key =
         !params.api_key.is_empty() && state.config.auth.api_keys.contains(&params.api_key);
     let has_valid_session = state.config.admin_ui.as_ref().is_some_and(|ui_config| {
@@ -51,7 +51,15 @@ pub async fn ws_handler(
             .map(|c| crate::admin_ui::auth::validate_session_cookie(c, ui_config))
             .unwrap_or(false)
     });
-    let is_valid = has_api_key || has_valid_session;
+    let has_ws_token = if !params.api_key.is_empty() && !has_api_key {
+        // Treat as a WS token — validate as JWT signed with the admin UI JWT secret
+        state.config.admin_ui.as_ref().is_some_and(|ui_config| {
+            crate::admin_ui::auth::validate_session_token(&params.api_key, ui_config)
+        })
+    } else {
+        false
+    };
+    let is_valid = has_api_key || has_valid_session || has_ws_token;
 
     if !is_valid {
         return ws.on_upgrade(|mut socket| async move {
