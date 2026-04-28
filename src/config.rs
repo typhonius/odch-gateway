@@ -50,8 +50,6 @@ pub struct WebhookConfig {
     pub timeout_secs: u64,
     #[serde(default = "default_max_webhooks")]
     pub max_webhooks: usize,
-    #[serde(default = "default_storage_path")]
-    pub storage_path: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -90,9 +88,6 @@ fn default_timeout() -> u64 {
 }
 fn default_max_webhooks() -> usize {
     50
-}
-fn default_storage_path() -> String {
-    "webhooks.json".to_string()
 }
 
 impl fmt::Debug for AppConfig {
