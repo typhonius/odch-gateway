@@ -152,12 +152,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Set up webhook manager (database-backed)
-    let webhook_config = config.webhook.clone().unwrap_or(crate::config::WebhookConfig {
-        max_retries: 3,
-        retry_delay_secs: 5,
-        timeout_secs: 10,
-        max_webhooks: 50,
-    });
+    let webhook_config = config
+        .webhook
+        .clone()
+        .unwrap_or(crate::config::WebhookConfig {
+            max_retries: 3,
+            retry_delay_secs: 5,
+            timeout_secs: 10,
+            max_webhooks: 50,
+        });
     let webhook_manager = Arc::new(WebhookManager::new(
         db_pool.as_ref().map(|p| p.inner().clone()),
         webhook_config.max_webhooks,
