@@ -56,10 +56,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/users/:nick/gag", delete(moderation::ungag_user))
         .route("/commands/:name/execute", post(commands::execute_command))
         .route("/users/register", post(moderation::register_user))
-        .route(
-            "/users/:nick/register",
-            delete(moderation::unregister_user),
-        )
+        .route("/users/:nick/register", delete(moderation::unregister_user))
         .route("/webhooks", post(webhooks::create_webhook))
         .route("/webhooks/:id", put(webhooks::update_webhook))
         .route("/webhooks/:id", delete(webhooks::delete_webhook))
@@ -145,10 +142,13 @@ pub fn build_router(state: AppState) -> Router {
 
     Router::new()
         .nest("/api/v1", api_routes)
-        .nest("/api/v1/bot", bot_routes.layer(middleware::from_fn_with_state(
-            state.clone(),
-            auth::require_api_key,
-        )))
+        .nest(
+            "/api/v1/bot",
+            bot_routes.layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth::require_api_key,
+            )),
+        )
         .nest("/api", Router::new().fallback(legacy_api_redirect))
         .merge(ws_route)
         .merge(health_route)
@@ -276,7 +276,8 @@ mod tests {
                 description: "Test".to_string(),
                 speed: "LAN(T1)".to_string(),
                 email: "test@example.com".to_string(),
-                share: 1024, is_op: false,
+                share: 1024,
+                is_op: false,
             },
         );
 
@@ -304,7 +305,8 @@ mod tests {
                 description: "Test".to_string(),
                 speed: "LAN(T1)".to_string(),
                 email: "test@example.com".to_string(),
-                share: 1024, is_op: false,
+                share: 1024,
+                is_op: false,
             },
         );
 

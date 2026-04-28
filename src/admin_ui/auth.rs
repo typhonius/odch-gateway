@@ -130,8 +130,7 @@ pub fn validate_session_cookie(cookie_header: &str, config: &AdminUiConfig) -> b
 }
 
 fn create_token(username: &str, config: &AdminUiConfig) -> Result<String, AppError> {
-    let expiry = chrono::Utc::now()
-        + chrono::Duration::hours(config.session_expiry_hours as i64);
+    let expiry = chrono::Utc::now() + chrono::Duration::hours(config.session_expiry_hours as i64);
 
     let claims = Claims {
         sub: username.to_string(),

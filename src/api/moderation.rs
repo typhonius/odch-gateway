@@ -54,7 +54,10 @@ pub async fn kick_user(
 
     let is_online = state.hub_state.users.read().await.contains_key(&nick);
     if !is_online {
-        return Err(AppError::NotFound(format!("User '{}' is not currently online", nick)));
+        return Err(AppError::NotFound(format!(
+            "User '{}' is not currently online",
+            nick
+        )));
     }
 
     send_hub_command(&state, serde_json::json!({"type": "kick", "nick": nick})).await?;
@@ -80,7 +83,11 @@ pub async fn ban_user(
         nick.clone()
     };
 
-    send_hub_command(&state, serde_json::json!({"type": "ban", "entry": ban_target})).await?;
+    send_hub_command(
+        &state,
+        serde_json::json!({"type": "ban", "entry": ban_target}),
+    )
+    .await?;
 
     Ok(Json(serde_json::json!({
         "status": "banned",
@@ -170,12 +177,16 @@ pub async fn register_user(
         ));
     }
 
-    send_hub_command(&state, serde_json::json!({
-        "type": "register_user",
-        "nick": body.nick,
-        "password": body.password,
-        "permission": body.reg_type,
-    })).await?;
+    send_hub_command(
+        &state,
+        serde_json::json!({
+            "type": "register_user",
+            "nick": body.nick,
+            "password": body.password,
+            "permission": body.reg_type,
+        }),
+    )
+    .await?;
 
     Ok(Json(serde_json::json!({
         "status": "registered",
@@ -191,10 +202,14 @@ pub async fn unregister_user(
 ) -> Result<Json<serde_json::Value>, AppError> {
     validate_nick(&nick)?;
 
-    send_hub_command(&state, serde_json::json!({
-        "type": "unregister_user",
-        "nick": nick,
-    })).await?;
+    send_hub_command(
+        &state,
+        serde_json::json!({
+            "type": "unregister_user",
+            "nick": nick,
+        }),
+    )
+    .await?;
 
     Ok(Json(serde_json::json!({
         "status": "unregistered",

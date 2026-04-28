@@ -99,10 +99,22 @@ impl fmt::Debug for AppConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AppConfig")
             .field("server", &self.server)
-            .field("hub", &self.hub.as_ref().map(|h| format!("HubSocketConfig {{ path: {:?} }}", h.socket_path)))
+            .field(
+                "hub",
+                &self
+                    .hub
+                    .as_ref()
+                    .map(|h| format!("HubSocketConfig {{ path: {:?} }}", h.socket_path)),
+            )
             .field("database", &"[REDACTED]")
             .field("auth", &format!("[{} key(s)]", self.auth.api_keys.len()))
-            .field("admin_ui", &self.admin_ui.as_ref().map(|a| format!("AdminUiConfig {{ bind: {:?} }}", a.bind_address)))
+            .field(
+                "admin_ui",
+                &self
+                    .admin_ui
+                    .as_ref()
+                    .map(|a| format!("AdminUiConfig {{ bind: {:?} }}", a.bind_address)),
+            )
             .finish()
     }
 }

@@ -62,13 +62,14 @@ pub fn build_admin_router(state: AppState) -> Router {
         .route("/webhooks", get(api::webhooks::list_webhooks));
 
     // API routes with session auth
-    let api_routes = Router::new()
-        .merge(write_routes)
-        .merge(read_routes)
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            auth::require_session,
-        ));
+    let api_routes =
+        Router::new()
+            .merge(write_routes)
+            .merge(read_routes)
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth::require_session,
+            ));
 
     // WebSocket (session auth via cookie, not query param)
     let ws_route = Router::new()

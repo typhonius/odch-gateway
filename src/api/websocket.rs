@@ -42,8 +42,8 @@ pub async fn ws_handler(
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
     // Validate: API key via query param OR valid JWT session cookie (admin UI)
-    let has_api_key = !params.api_key.is_empty()
-        && state.config.auth.api_keys.contains(&params.api_key);
+    let has_api_key =
+        !params.api_key.is_empty() && state.config.auth.api_keys.contains(&params.api_key);
     let has_valid_session = state.config.admin_ui.as_ref().is_some_and(|ui_config| {
         headers
             .get("cookie")
@@ -67,7 +67,10 @@ pub async fn ws_handler(
     // Enforce connection limit
     let current = state.ws_connections.load(Ordering::Relaxed);
     if current >= MAX_WS_CONNECTIONS {
-        warn!("WebSocket connection limit reached ({}/{})", current, MAX_WS_CONNECTIONS);
+        warn!(
+            "WebSocket connection limit reached ({}/{})",
+            current, MAX_WS_CONNECTIONS
+        );
         return ws.on_upgrade(|mut socket| async move {
             let _ = socket
                 .send(Message::Close(Some(axum::extract::ws::CloseFrame {

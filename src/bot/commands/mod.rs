@@ -273,8 +273,15 @@ async fn ban(ctx: CommandContext) -> CommandResponse {
             let _ = ctx.hub_tx.send(cmd.to_string()).await;
             let kick_cmd = serde_json::json!({"type": "kick", "nick": target});
             let _ = ctx.hub_tx.send(kick_cmd.to_string()).await;
-            CommandResponse::Reply(format!("Banned {}{}", target,
-                if reason.is_empty() { String::new() } else { format!(" ({})", reason) }))
+            CommandResponse::Reply(format!(
+                "Banned {}{}",
+                target,
+                if reason.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({})", reason)
+                }
+            ))
         }
         Err(e) => CommandResponse::Reply(format!("Ban failed: {}", e)),
     }
