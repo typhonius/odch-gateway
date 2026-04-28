@@ -1,7 +1,9 @@
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
+use tokio::time::interval;
 use tracing::{error, info, warn};
 
 use crate::bus::EventBus;
@@ -92,9 +94,17 @@ async fn connect_and_run(
     // Main event loop
     let mut read_buf = vec![0u8; 65536];
     let mut partial = Vec::new();
+    let mut status_interval = interval(Duration::from_secs(30));
+    status_interval.tick().await; // skip first immediate tick
 
     loop {
         tokio::select! {
+            // Periodic status refresh
+            _ = status_interval.tick() => {
+                send_json(&mut stream, r#"{"type":"get_status"}"#).await.ok();
+                send_json(&mut stream, r#"{"type":"get_user_list"}"#).await.ok();
+            }
+
             // Read events from hub
             result = stream.read(&mut read_buf) => {
                 match result {
