@@ -7,11 +7,13 @@ mod db;
 mod error;
 mod event;
 mod hub;
+mod init;
 mod state;
 mod webhook;
 
 use std::sync::Arc;
 
+use clap::{Parser, Subcommand};
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
 
@@ -20,20 +22,98 @@ use crate::config::AppConfig;
 use crate::state::{AppState, HubState};
 use crate::webhook::manager::WebhookManager;
 
+#[derive(Parser)]
+#[command(
+    name = "odch-gateway",
+    version,
+    about = "REST/WebSocket API gateway for OpenDCHub"
+)]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+
+    /// Path to config file (default: config.toml)
+    #[arg(global = true, default_value = "config.toml")]
+    config: String,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Set up the entire stack: create DB, generate secrets, write configs
+    Init {
+        /// PostgreSQL host
+        #[arg(long, default_value = "localhost")]
+        db_host: String,
+        /// PostgreSQL port
+        #[arg(long, default_value_t = 5432)]
+        db_port: u16,
+        /// Database name
+        #[arg(long, default_value = "odch")]
+        db_name: String,
+        /// Database user
+        #[arg(long, default_value = "odch")]
+        db_user: String,
+        /// Database password
+        #[arg(long, default_value = "odch")]
+        db_password: String,
+        /// Hub NMDC port
+        #[arg(long, default_value_t = 4012)]
+        hub_port: u16,
+        /// Gateway API port
+        #[arg(long, default_value_t = 3000)]
+        api_port: u16,
+        /// Admin UI port
+        #[arg(long, default_value_t = 3001)]
+        admin_ui_port: u16,
+        /// Config directory
+        #[arg(long, default_value = "/opt/opendchub")]
+        config_dir: String,
+        /// Create systemd service files
+        #[arg(long)]
+        systemd: bool,
+    },
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize logging
+    let cli = Cli::parse();
+
+    // Handle init subcommand
+    if let Some(Commands::Init {
+        db_host,
+        db_port,
+        db_name,
+        db_user,
+        db_password,
+        hub_port,
+        api_port,
+        admin_ui_port,
+        config_dir,
+        systemd,
+    }) = cli.command
+    {
+        return init::run_init(init::InitConfig {
+            db_host: &db_host,
+            db_port,
+            db_name: &db_name,
+            db_user: &db_user,
+            db_password: &db_password,
+            hub_port,
+            api_port,
+            admin_ui_port,
+            config_dir: &config_dir,
+            install_services: systemd,
+        });
+    }
+
+    // Normal server mode
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .init();
 
-    // Load config
-    let config_path = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "config.toml".to_string());
-
+    let config_path = cli.config;
     let config = AppConfig::load(&config_path)?;
     let config = Arc::new(config);
 
