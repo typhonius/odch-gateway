@@ -19,7 +19,7 @@ use tracing_subscriber::EnvFilter;
 
 use crate::bus::EventBus;
 use crate::config::AppConfig;
-use crate::state::{AppState, HubState};
+use crate::state::{AppState, BotRegistry, HubState};
 use crate::webhook::manager::WebhookManager;
 
 #[derive(Parser)]
@@ -173,6 +173,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
+    // Create bot registry for external bots
+    let bot_registry = Arc::new(BotRegistry::new());
+
     let app_state = AppState {
         config: config.clone(),
         event_bus: event_bus.clone(),
@@ -182,6 +185,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         webhook_manager: webhook_manager.clone(),
         ws_connections: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         command_engine: command_engine.clone(),
+        bot_registry: bot_registry.clone(),
     };
 
     // Connect to hub via Unix socket
@@ -217,6 +221,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let bot_pool = pool.inner().clone();
         let bot_tx = app_state.admin_tx.clone();
         let bot_engine = engine.clone();
+        let bot_reg = bot_registry.clone();
         tokio::spawn(async move {
             let mut rx = bot_bus.subscribe();
 
@@ -233,6 +238,48 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .await
                         {
                             bot_engine.send_response(response, nick, &tx).await;
+                        } else if message.trim().starts_with('!') {
+                            // Check if an external bot handles this command
+                            let msg = message.trim();
+                            let without_prefix = &msg[1..];
+                            let (cmd_name, args) = match without_prefix.find(' ') {
+                                Some(pos) => (
+                                    &without_prefix[..pos],
+                                    without_prefix[pos + 1..].trim(),
+                                ),
+                                None => (without_prefix, ""),
+                            };
+                            let cmd_lower = cmd_name.to_lowercase();
+                            let bots = bot_reg.bots.read().await;
+                            for bot in bots.values() {
+                                if bot.commands.contains(&cmd_lower) {
+                                    let _ = bot.event_tx.send(
+                                        crate::state::BotEvent::Command {
+                                            from_nick: nick.to_string(),
+                                            command: cmd_lower.clone(),
+                                            args: args.to_string(),
+                                            timestamp: chrono::Utc::now(),
+                                        },
+                                    );
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    Ok(crate::event::HubEvent::PrivateMessage {
+                        ref from,
+                        ref to,
+                        ref message,
+                        ..
+                    }) => {
+                        // Route PM to the bot that owns the target nick
+                        let bots = bot_reg.bots.read().await;
+                        if let Some(bot) = bots.get(to) {
+                            let _ = bot.event_tx.send(crate::state::BotEvent::PrivateMessage {
+                                from_nick: from.clone(),
+                                message: message.clone(),
+                                timestamp: chrono::Utc::now(),
+                            });
                         }
                     }
                     Ok(_) => {}

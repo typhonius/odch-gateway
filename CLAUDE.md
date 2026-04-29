@@ -1,6 +1,6 @@
 # odch-gateway
 
-Rust REST/WebSocket API gateway for OpenDCHub. Owns the PostgreSQL database. Provides built-in bot commands, a bot API for Dragon, and an admin web UI.
+Rust REST/WebSocket API gateway for OpenDCHub. Owns the PostgreSQL database. Provides built-in bot commands (moderation + fun), manages virtual users (ODCHBot/OPChat) on the hub, and hosts an admin web UI.
 
 ## Building and testing
 
@@ -60,7 +60,7 @@ migrations/        — sqlx PostgreSQL migrations
 
 ## Config
 
-See `config.example.toml`. Sections: `[server]`, `[hub]`, `[database]`, `[auth]`, `[webhook]`, `[rate_limit]`, `[admin_ui]`.
+See `config.example.toml`. Sections: `[server]`, `[hub]`, `[database]`, `[auth]`, `[webhook]`, `[rate_limit]`, `[bots]`, `[admin_ui]`.
 
 Hub connection is via Unix domain socket (`[hub].socket_path`). PostgreSQL required (`[database].url`).
 

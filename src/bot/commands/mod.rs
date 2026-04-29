@@ -42,8 +42,8 @@ where
 
 async fn help(_ctx: CommandContext) -> CommandResponse {
     CommandResponse::Reply(
-        "Available commands: !help !tell !history !search !seen !first !last \
-         !quote !stats !watch !unwatch !info"
+        "Commands: !help !tell !history !search !seen !first !last !quote \
+         !stats !watch !unwatch !info !ban !unban !kick !gag !ungag !topic"
             .to_string(),
     )
 }

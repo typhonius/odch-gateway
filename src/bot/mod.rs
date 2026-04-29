@@ -1,11 +1,12 @@
 //! Built-in bot command engine.
 //!
 //! Gateway processes chat messages starting with "!" and dispatches to
-//! registered command handlers. These provide core hub functionality
-//! (ban, tell, stats, etc.) without needing Dragon.
+//! registered command handlers. Built-in moderation commands (ban, tell,
+//! stats, etc.) reply as Hub-Security PMs.
 //!
-//! When Dragon registers via the bot API, it declares which commands it
-//! handles. Gateway disables its built-in handlers for those commands.
+//! Fun commands (coin, roll, 8ball, etc.) are no longer built-in. External
+//! bots register via the Bot API, which creates virtual users on the hub.
+//! Bots poll for commands and respond via the chat/PM API endpoints.
 
 pub mod commands;
 
@@ -25,7 +26,7 @@ pub struct CommandContext {
 
 /// Response from a command handler.
 pub enum CommandResponse {
-    /// Send a private message to the invoking user.
+    /// Send a private message to the invoking user (from Hub-Security).
     Reply(String),
 }
 
@@ -42,7 +43,7 @@ pub type CommandHandler = Box<
 pub struct CommandEngine {
     commands: HashMap<String, CommandHandler>,
     aliases: HashMap<String, String>,
-    /// Commands that Dragon has claimed (disabled for built-in handling).
+    /// Commands that an external bot has claimed (disabled for built-in handling).
     disabled: Arc<RwLock<std::collections::HashSet<String>>>,
 }
 

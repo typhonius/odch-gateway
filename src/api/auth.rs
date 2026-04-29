@@ -56,7 +56,7 @@ mod tests {
     use super::*;
     use crate::bus::EventBus;
     use crate::config::{AppConfig, AuthConfig, ServerConfig};
-    use crate::state::{AppState, HubState};
+    use crate::state::{AppState, BotRegistry, HubState};
     use crate::webhook::manager::WebhookManager;
     use axum::body::Body;
     use axum::http::{Request as HttpRequest, StatusCode};
@@ -88,9 +88,10 @@ mod tests {
             hub_state: Arc::new(HubState::new()),
             admin_tx: Arc::new(admin_tx),
             db_pool: None,
-            webhook_manager: Arc::new(WebhookManager::in_memory(10)),
+            webhook_manager: Arc::new(WebhookManager::new(None, 10)),
             ws_connections: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             command_engine: None,
+            bot_registry: Arc::new(BotRegistry::new()),
         }
     }
 

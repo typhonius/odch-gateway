@@ -1,11 +1,17 @@
-//! Bot API endpoints — used by Dragon for all data operations.
+//! Bot API endpoints — external bot platform.
 //!
-//! All endpoints under /api/v1/bot/ require X-Bot-Key authentication.
-//! This is separate from the external X-API-Key.
+//! Bots register via POST /api/v1/bot/register, which creates a virtual user
+//! on the hub. Bots poll for commands via GET /api/v1/bot/commands/pending
+//! and respond via POST /api/v1/bot/chat or POST /api/v1/bot/pm.
+//!
+//! All endpoints under /api/v1/bot/ require X-API-Key authentication.
 
 use axum::extract::{Path, Query, State};
+use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::Json;
+use futures_core::Stream;
 use serde::Deserialize;
+use std::convert::Infallible;
 
 use crate::db::queries;
 use crate::error::AppError;
@@ -499,6 +505,13 @@ pub async fn delete_data(
 #[derive(Deserialize)]
 pub struct BotRegisterRequest {
     pub nick: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub email: String,
+    #[serde(default)]
+    pub tag: String,
+    #[serde(default)]
     pub commands: Vec<String>,
 }
 
@@ -506,10 +519,46 @@ pub async fn register_bot(
     State(state): State<AppState>,
     Json(body): Json<BotRegisterRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    // Disable built-in command handlers for commands Dragon claims
+    // Create a RegisteredBot entry in the bot registry
+    {
+        let mut bots = state.bot_registry.bots.write().await;
+        let commands_set: std::collections::HashSet<String> =
+            body.commands.iter().map(|c| c.to_lowercase()).collect();
+        let (event_tx, _) = tokio::sync::broadcast::channel(256);
+        bots.insert(
+            body.nick.clone(),
+            crate::state::RegisteredBot {
+                nick: body.nick.clone(),
+                description: body.description.clone(),
+                email: body.email.clone(),
+                tag: body.tag.clone(),
+                commands: commands_set,
+                event_tx,
+            },
+        );
+    }
+
+    // Send add_virtual_user command to hub
+    let cmd = serde_json::json!({
+        "type": "add_virtual_user",
+        "nick": body.nick,
+        "description": body.description,
+        "email": body.email,
+        "tag": body.tag,
+        "share": 0,
+        "op": false,
+    });
+    state
+        .admin_tx
+        .send(cmd.to_string())
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to send: {}", e)))?;
+
+    // Disable built-in command handlers for commands this bot claims
     if let Some(ref engine) = state.command_engine {
         engine.disable_commands(&body.commands).await;
     }
+
     tracing::info!(
         "Bot '{}' registered, claiming commands: {:?}",
         body.nick,
@@ -522,13 +571,170 @@ pub async fn register_bot(
     })))
 }
 
+#[derive(Deserialize)]
+pub struct BotUnregisterRequest {
+    pub nick: String,
+}
+
 pub async fn unregister_bot(
     State(state): State<AppState>,
+    Json(body): Json<BotUnregisterRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    // Re-enable all built-in command handlers
+    // Remove from registry and collect the bot's commands
+    let commands = {
+        let mut bots = state.bot_registry.bots.write().await;
+        match bots.remove(&body.nick) {
+            Some(bot) => bot.commands.into_iter().collect::<Vec<_>>(),
+            None => vec![],
+        }
+    };
+
+    // Send remove_virtual_user to hub
+    let cmd = serde_json::json!({
+        "type": "remove_virtual_user",
+        "nick": body.nick,
+    });
+    let _ = state.admin_tx.send(cmd.to_string()).await;
+
+    // Re-enable built-in commands that were claimed by this bot
     if let Some(ref engine) = state.command_engine {
         engine.enable_all().await;
     }
-    tracing::info!("Bot unregistered, re-enabling built-in commands");
-    Ok(Json(serde_json::json!({"status": "unregistered"})))
+
+    tracing::info!("Bot '{}' unregistered, re-enabling built-in commands", body.nick);
+    Ok(Json(serde_json::json!({
+        "status": "unregistered",
+        "nick": body.nick,
+        "commands": commands,
+    })))
+}
+
+// ---------------------------------------------------------------------------
+// Bot command polling and messaging
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct PollQuery {
+    pub nick: String,
+}
+
+pub async fn poll_commands(
+    State(state): State<AppState>,
+    Query(params): Query<PollQuery>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let bots = state.bot_registry.bots.read().await;
+    let bot = bots.get(&params.nick).ok_or_else(|| {
+        AppError::NotFound(format!("Bot '{}' not registered", params.nick))
+    })?;
+    let mut rx = bot.event_tx.subscribe();
+    drop(bots);
+
+    let mut events = Vec::new();
+    while let Ok(event) = rx.try_recv() {
+        events.push(event);
+    }
+    Ok(Json(serde_json::json!({
+        "events": events,
+        "count": events.len(),
+    })))
+}
+
+pub async fn bot_events(
+    State(state): State<AppState>,
+    Query(params): Query<PollQuery>,
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, AppError> {
+    let bots = state.bot_registry.bots.read().await;
+    let bot = bots
+        .get(&params.nick)
+        .ok_or_else(|| AppError::NotFound(format!("Bot '{}' not registered", params.nick)))?;
+    let mut rx = bot.event_tx.subscribe();
+    drop(bots);
+
+    let stream = async_stream::stream! {
+        loop {
+            match rx.recv().await {
+                Ok(event) => {
+                    let event_name = match &event {
+                        crate::state::BotEvent::Command { .. } => "command",
+                        crate::state::BotEvent::PrivateMessage { .. } => "pm",
+                    };
+                    let json = serde_json::to_string(&event).unwrap_or_default();
+                    yield Ok(Event::default().event(event_name).data(json));
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    yield Ok(Event::default().event("error").data(format!("lagged by {} events", n)));
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    };
+
+    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
+}
+
+#[derive(Deserialize)]
+pub struct BotChatRequest {
+    pub nick: String,
+    pub message: String,
+}
+
+pub async fn bot_chat(
+    State(state): State<AppState>,
+    Json(body): Json<BotChatRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    // Verify bot is registered
+    {
+        let bots = state.bot_registry.bots.read().await;
+        if !bots.contains_key(&body.nick) {
+            return Err(AppError::NotFound(format!(
+                "Bot '{}' not registered",
+                body.nick
+            )));
+        }
+    }
+    let cmd = serde_json::json!({
+        "type": "send_chat_as",
+        "nick": body.nick,
+        "message": body.message,
+    });
+    state
+        .admin_tx
+        .send(cmd.to_string())
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to send: {}", e)))?;
+    Ok(Json(serde_json::json!({"status": "sent"})))
+}
+
+#[derive(Deserialize)]
+pub struct BotPmRequest {
+    pub from: String,
+    pub to: String,
+    pub message: String,
+}
+
+pub async fn bot_pm(
+    State(state): State<AppState>,
+    Json(body): Json<BotPmRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    {
+        let bots = state.bot_registry.bots.read().await;
+        if !bots.contains_key(&body.from) {
+            return Err(AppError::NotFound(format!(
+                "Bot '{}' not registered",
+                body.from
+            )));
+        }
+    }
+    let cmd = serde_json::json!({
+        "type": "send_pm_as",
+        "from": body.from,
+        "to": body.to,
+        "message": body.message,
+    });
+    state
+        .admin_tx
+        .send(cmd.to_string())
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to send: {}", e)))?;
+    Ok(Json(serde_json::json!({"status": "sent"})))
 }

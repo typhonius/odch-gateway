@@ -33,6 +33,8 @@ jsonwebtoken = "9"
 bcrypt = "0.16"
 tokio-util = { version = "0.7", features = ["rt"] }
 clap = { version = "4.6.1", features = ["derive"] }
+async-stream = "0.3"
+futures-core = "0.3"
 
 [dev-dependencies]
 http-body-util = "0.1"

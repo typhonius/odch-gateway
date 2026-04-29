@@ -39,6 +39,12 @@ pub enum HubEvent {
         by: String,
         timestamp: DateTime<Utc>,
     },
+    PrivateMessage {
+        from: String,
+        to: String,
+        message: String,
+        timestamp: DateTime<Utc>,
+    },
     GatewayStatus {
         connected: bool,
         message: String,

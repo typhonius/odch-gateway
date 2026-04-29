@@ -96,6 +96,7 @@ fn event_type_name(event: &HubEvent) -> &'static str {
         HubEvent::HubName { .. } => "HubName",
         HubEvent::OpListUpdate { .. } => "OpListUpdate",
         HubEvent::Kick { .. } => "Kick",
+        HubEvent::PrivateMessage { .. } => "PrivateMessage",
         HubEvent::GatewayStatus { .. } => "GatewayStatus",
     }
 }

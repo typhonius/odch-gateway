@@ -120,6 +120,7 @@ fn event_type_tag(event: &HubEvent) -> &'static str {
         HubEvent::HubName { .. } => "hub_name",
         HubEvent::OpListUpdate { .. } => "op_list",
         HubEvent::Kick { .. } => "kick",
+        HubEvent::PrivateMessage { .. } => "pm",
         HubEvent::GatewayStatus { .. } => "gateway_status",
     }
 }

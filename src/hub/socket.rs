@@ -281,6 +281,19 @@ async fn handle_event(json_str: &str, event_bus: &Arc<EventBus>, hub_state: &Arc
             });
         }
 
+        "pm" => {
+            let from = value.get("from").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let to = value.get("to").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let message = value.get("message").and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+            event_bus.publish(HubEvent::PrivateMessage {
+                from,
+                to,
+                message,
+                timestamp: chrono::Utc::now(),
+            });
+        }
+
         "kick" => {
             let nick = value
                 .get("nick")

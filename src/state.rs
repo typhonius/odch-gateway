@@ -57,6 +57,53 @@ impl Default for HubState {
     }
 }
 
+/// An event delivered to an external bot via SSE or polling.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "event_type")]
+pub enum BotEvent {
+    Command {
+        from_nick: String,
+        command: String,
+        args: String,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    },
+    PrivateMessage {
+        from_nick: String,
+        message: String,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    },
+}
+
+/// A registered external bot.
+#[allow(dead_code)]
+pub struct RegisteredBot {
+    pub nick: String,
+    pub description: String,
+    pub email: String,
+    pub tag: String,
+    pub commands: std::collections::HashSet<String>,
+    pub event_tx: tokio::sync::broadcast::Sender<BotEvent>,
+}
+
+/// Registry of external bots connected via the Bot API.
+pub struct BotRegistry {
+    pub bots: tokio::sync::RwLock<std::collections::HashMap<String, RegisteredBot>>,
+}
+
+impl BotRegistry {
+    pub fn new() -> Self {
+        Self {
+            bots: tokio::sync::RwLock::new(std::collections::HashMap::new()),
+        }
+    }
+}
+
+impl Default for BotRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Shared application state passed to all handlers.
 #[derive(Clone)]
 pub struct AppState {
@@ -68,4 +115,5 @@ pub struct AppState {
     pub webhook_manager: Arc<WebhookManager>,
     pub ws_connections: Arc<AtomicUsize>,
     pub command_engine: Option<Arc<crate::bot::CommandEngine>>,
+    pub bot_registry: Arc<BotRegistry>,
 }
