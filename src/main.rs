@@ -238,32 +238,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .await
                         {
                             bot_engine.send_response(response, nick, &tx).await;
-                        } else if message.trim().starts_with('!') {
-                            // Check if an external bot handles this command
-                            let msg = message.trim();
-                            let without_prefix = &msg[1..];
-                            let (cmd_name, args) = match without_prefix.find(' ') {
-                                Some(pos) => (
-                                    &without_prefix[..pos],
-                                    without_prefix[pos + 1..].trim(),
-                                ),
-                                None => (without_prefix, ""),
-                            };
-                            let cmd_lower = cmd_name.to_lowercase();
-                            let bots = bot_reg.bots.read().await;
-                            for bot in bots.values() {
-                                if bot.commands.contains(&cmd_lower) {
-                                    let _ = bot.event_tx.send(
-                                        crate::state::BotEvent::Command {
-                                            from_nick: nick.to_string(),
-                                            command: cmd_lower.clone(),
-                                            args: args.to_string(),
-                                            timestamp: chrono::Utc::now(),
-                                        },
-                                    );
-                                    break;
-                                }
-                            }
                         }
                     }
                     Ok(crate::event::HubEvent::PrivateMessage {

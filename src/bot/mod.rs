@@ -100,8 +100,8 @@ impl CommandEngine {
         self.disabled.write().await.clear();
     }
 
-    /// Try to handle a chat message as a command.
-    /// Returns None if the message isn't a command or the command is disabled.
+    /// Handle a chat message: dispatch to built-in handler or route to external bot.
+    /// Returns None only if the message isn't a command at all.
     pub async fn try_handle(
         &self,
         nick: &str,
@@ -123,8 +123,20 @@ impl CommandEngine {
 
         let cmd_lower = cmd_name.to_lowercase();
 
-        // Check if disabled (Dragon is handling it)
+        // If an external bot claims this command, route to it directly
         if self.disabled.read().await.contains(&cmd_lower) {
+            let bots = bot_registry.bots.read().await;
+            for bot in bots.values() {
+                if bot.commands.contains(&cmd_lower) {
+                    let _ = bot.event_tx.send(crate::state::BotEvent::Command {
+                        from_nick: nick.to_string(),
+                        command: cmd_lower,
+                        args: args.to_string(),
+                        timestamp: chrono::Utc::now(),
+                    });
+                    break;
+                }
+            }
             return None;
         }
 
