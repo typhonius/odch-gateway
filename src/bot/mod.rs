@@ -63,14 +63,17 @@ pub struct CommandEngine {
     aliases: HashMap<String, String>,
     /// Commands that an external bot has claimed (disabled for built-in handling).
     disabled: Arc<RwLock<std::collections::HashSet<String>>>,
+    /// Hub state — used to read hub_name for response nick.
+    hub_state: Arc<crate::state::HubState>,
 }
 
 impl CommandEngine {
-    pub fn new() -> Self {
+    pub fn new(hub_state: Arc<crate::state::HubState>) -> Self {
         let mut engine = Self {
             commands: HashMap::new(),
             aliases: HashMap::new(),
             disabled: Arc::new(RwLock::new(std::collections::HashSet::new())),
+            hub_state,
         };
         commands::register_all(&mut engine);
         engine
@@ -169,11 +172,20 @@ impl CommandEngine {
         nick: &str,
         hub_tx: &mpsc::Sender<String>,
     ) {
+        // Use the hub name as the system identity for chat responses
+        let hub_name = self.hub_state.hub_name.read().await;
+        let system_nick = if hub_name.is_empty() {
+            "Hub".to_string()
+        } else {
+            hub_name.clone()
+        };
+        drop(hub_name);
+
         match response {
             CommandResponse::ChatAll(msg) => {
                 let cmd = serde_json::json!({
                     "type": "send_chat_as",
-                    "nick": "Hub-Security",
+                    "nick": system_nick,
                     "message": msg,
                 });
                 let _ = hub_tx.send(cmd.to_string()).await;
@@ -181,7 +193,7 @@ impl CommandEngine {
             CommandResponse::ChatSingle(msg) => {
                 let cmd = serde_json::json!({
                     "type": "send_to_as",
-                    "nick": "Hub-Security",
+                    "nick": system_nick,
                     "to": nick,
                     "message": msg,
                 });

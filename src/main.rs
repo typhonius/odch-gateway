@@ -168,7 +168,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create command engine (if DB is configured)
     let command_engine = if db_pool.is_some() {
-        Some(Arc::new(bot::CommandEngine::new()))
+        Some(Arc::new(bot::CommandEngine::new(hub_state.clone())))
     } else {
         None
     };
