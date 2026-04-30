@@ -40,21 +40,92 @@ where
 // Command implementations
 // ---------------------------------------------------------------------------
 
-async fn help(ctx: CommandContext) -> CommandResponse {
-    let mut msg = String::from(
-        "Commands: !help !tell !history !search !seen !first !last !quote \
-         !stats !watch !unwatch !info !ban !unban !kick !gag !ungag !topic",
-    );
+/// Command descriptions for help display.
+fn command_help(name: &str) -> Option<(&'static str, &'static str)> {
+    // Returns (usage, description)
+    match name {
+        "help" | "h" | "commands" => Some(("!help [command]", "Show commands or help for a specific command")),
+        "tell" | "msg" => Some(("!tell <nick> <message>", "Leave a message for an offline user")),
+        "history" | "hist" => Some(("!history [count]", "Show recent chat history")),
+        "search" => Some(("!search <query>", "Search chat history (min 3 chars)")),
+        "seen" => Some(("!seen <nick>", "Check when a user was last online")),
+        "first" => Some(("!first [nick]", "Show a user's first ever chat message")),
+        "last" => Some(("!last [nick]", "Show a user's most recent chat message")),
+        "quote" | "q" => Some(("!quote [nick]", "Random quote from chat history")),
+        "stats" => Some(("!stats", "Show hub statistics")),
+        "watch" | "w" => Some(("!watch <nick>", "Get notified when a user logs in/out")),
+        "unwatch" | "uw" => Some(("!unwatch <nick>", "Stop watching a user")),
+        "info" => Some(("!info [nick]", "Show user info (share, first seen, etc.)")),
+        "ban" => Some(("!ban <nick> [reason]", "Ban and kick a user")),
+        "unban" => Some(("!unban <nick>", "Remove a ban")),
+        "kick" => Some(("!kick <nick> [reason]", "Kick a user from the hub")),
+        "gag" | "mute" => Some(("!gag <nick> [reason]", "Silence a user")),
+        "ungag" | "unmute" => Some(("!ungag <nick>", "Unsilence a user")),
+        "topic" => Some(("!topic <text>", "Set the hub topic")),
+        _ => None,
+    }
+}
 
-    // Add external bot commands
+async fn help(ctx: CommandContext) -> CommandResponse {
+    let query = ctx.args.trim().to_lowercase();
+
+    // Specific command help: !help tell
+    if !query.is_empty() {
+        let cmd_name = query.trim_start_matches('!');
+        if let Some((usage, desc)) = command_help(cmd_name) {
+            return CommandResponse::ChatSingle(format!(
+                "Help: {}\n  {}", usage, desc
+            ));
+        }
+        // Check external bot commands
+        let bots = ctx.bot_registry.bots.read().await;
+        for bot in bots.values() {
+            if bot.commands.contains(cmd_name) {
+                return CommandResponse::ChatSingle(format!(
+                    "!{} — provided by {} (external bot)", cmd_name, bot.nick
+                ));
+            }
+        }
+        return CommandResponse::ChatSingle(format!(
+            "Unknown command '{}'. Type !help for a list.", cmd_name
+        ));
+    }
+
+    // General help: formatted list
+    let mut msg = String::from("=== Hub Commands ===\n");
+    msg.push_str("  !help [cmd]       Show help\n");
+    msg.push_str("  !tell <nick> msg  Leave a message\n");
+    msg.push_str("  !seen <nick>      Last seen\n");
+    msg.push_str("  !first [nick]     First message\n");
+    msg.push_str("  !last [nick]      Last message\n");
+    msg.push_str("  !quote [nick]     Random quote\n");
+    msg.push_str("  !history [n]      Chat history\n");
+    msg.push_str("  !search <query>   Search chat\n");
+    msg.push_str("  !info [nick]      User info\n");
+    msg.push_str("  !stats            Hub stats\n");
+    msg.push_str("  !watch <nick>     Watch login/logout\n");
+    msg.push_str("  !unwatch <nick>   Stop watching\n");
+    msg.push_str("  !topic <text>     Set hub topic\n");
+    msg.push_str("  !kick <nick>      Kick user\n");
+    msg.push_str("  !ban <nick>       Ban user\n");
+    msg.push_str("  !unban <nick>     Unban user\n");
+    msg.push_str("  !gag <nick>       Silence user\n");
+    msg.push_str("  !ungag <nick>     Unsilence user\n");
+
+    // External bot commands
     let bots = ctx.bot_registry.bots.read().await;
     for bot in bots.values() {
         if !bot.commands.is_empty() {
-            let mut cmds: Vec<String> = bot.commands.iter().map(|c| format!("!{}", c)).collect();
+            let mut cmds: Vec<&String> = bot.commands.iter().collect();
             cmds.sort();
-            msg.push_str(&format!(" | {}: {}", bot.nick, cmds.join(" ")));
+            msg.push_str(&format!("\n=== {} ===\n", bot.nick));
+            for cmd in cmds {
+                msg.push_str(&format!("  !{}\n", cmd));
+            }
         }
     }
+
+    msg.push_str("\nType !help <command> for details.");
 
     CommandResponse::ChatSingle(msg)
 }
