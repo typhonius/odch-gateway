@@ -1,8 +1,9 @@
 //! Built-in bot command engine.
 //!
 //! Gateway processes chat messages starting with "!" and dispatches to
-//! registered command handlers. Built-in moderation commands (ban, tell,
-//! stats, etc.) reply as Hub-Security PMs.
+//! registered command handlers. Response delivery matches the v3 bot's
+//! message model: public chat, single-user chat, bot PM, hub PM, or raw
+//! protocol commands.
 //!
 //! Fun commands (coin, roll, 8ball, etc.) are no longer built-in. External
 //! bots register via the Bot API, which creates virtual users on the hub.
@@ -22,12 +23,29 @@ pub struct CommandContext {
     pub args: String,
     pub db: PgPool,
     pub hub_tx: mpsc::Sender<String>,
+    pub bot_registry: Arc<crate::state::BotRegistry>,
 }
 
 /// Response from a command handler.
+#[allow(dead_code)]
 pub enum CommandResponse {
-    /// Send a private message to the invoking user (from Hub-Security).
-    Reply(String),
+    /// `<nick> message` broadcast to ALL users in main chat (v3 PUBLIC_ALL).
+    /// Used for: seen, first, quote, kick/ban/gag announcements, ungag, unban.
+    ChatAll(String),
+    /// `<nick> message` to ONLY the requesting user in main chat (v3 PUBLIC_SINGLE).
+    /// Used for: help, commands, stats, history, search, last, watch, unwatch, info.
+    ChatSingle(String),
+    /// PM from bot nick to user (v3 BOT_PM).
+    /// Used for: tell confirmation, gag notice to victim.
+    BotPm(String),
+    /// PM from Hub-Security to user (v3 HUB_PM).
+    /// Used for: kick reason sent to victim (the ONLY thing that should be Hub-Security PM).
+    HubPm(String),
+    /// Raw `$HubName` protocol string to all users (v3 HUB_PUBLIC).
+    /// Used for: topic.
+    HubTopic(String),
+    /// Multiple responses (some commands need to send several messages).
+    Multi(Vec<CommandResponse>),
 }
 
 /// A command handler function.
@@ -87,6 +105,7 @@ impl CommandEngine {
         message: &str,
         db: PgPool,
         hub_tx: mpsc::Sender<String>,
+        bot_registry: Arc<crate::state::BotRegistry>,
     ) -> Option<CommandResponse> {
         let msg = message.trim();
         if !msg.starts_with('!') {
@@ -120,6 +139,7 @@ impl CommandEngine {
             args: args.to_string(),
             db,
             hub_tx,
+            bot_registry,
         };
 
         Some(handler(ctx).await)
@@ -133,13 +153,66 @@ impl CommandEngine {
         hub_tx: &mpsc::Sender<String>,
     ) {
         match response {
-            CommandResponse::Reply(msg) => {
+            CommandResponse::Multi(responses) => {
+                for r in responses {
+                    self.send_response_single(r, nick, hub_tx).await;
+                }
+            }
+            other => self.send_response_single(other, nick, hub_tx).await,
+        }
+    }
+
+    /// Send a single (non-Multi) command response back to the hub.
+    async fn send_response_single(
+        &self,
+        response: CommandResponse,
+        nick: &str,
+        hub_tx: &mpsc::Sender<String>,
+    ) {
+        match response {
+            CommandResponse::ChatAll(msg) => {
+                let cmd = serde_json::json!({
+                    "type": "send_chat_as",
+                    "nick": "Hub-Security",
+                    "message": msg,
+                });
+                let _ = hub_tx.send(cmd.to_string()).await;
+            }
+            CommandResponse::ChatSingle(msg) => {
+                let cmd = serde_json::json!({
+                    "type": "send_to_as",
+                    "nick": "Hub-Security",
+                    "to": nick,
+                    "message": msg,
+                });
+                let _ = hub_tx.send(cmd.to_string()).await;
+            }
+            CommandResponse::BotPm(msg) => {
+                let cmd = serde_json::json!({
+                    "type": "send_pm_as",
+                    "from": "Hub-Security",
+                    "to": nick,
+                    "message": msg,
+                });
+                let _ = hub_tx.send(cmd.to_string()).await;
+            }
+            CommandResponse::HubPm(msg) => {
                 let cmd = serde_json::json!({
                     "type": "send_to",
                     "nick": nick,
                     "message": msg,
                 });
                 let _ = hub_tx.send(cmd.to_string()).await;
+            }
+            CommandResponse::HubTopic(topic) => {
+                let cmd = serde_json::json!({
+                    "type": "send_all",
+                    "message": topic,
+                });
+                let _ = hub_tx.send(cmd.to_string()).await;
+            }
+            CommandResponse::Multi(_) => {
+                // Multi is handled by send_response; should not reach here.
             }
         }
     }

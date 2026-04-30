@@ -18,6 +18,35 @@ use crate::error::AppError;
 use crate::state::AppState;
 
 // ---------------------------------------------------------------------------
+// Token validation helper
+// ---------------------------------------------------------------------------
+
+async fn validate_bot_token(state: &AppState, nick: &str, token: &str) -> Result<(), AppError> {
+    let bots = state.bot_registry.bots.read().await;
+    match bots.get(nick) {
+        Some(bot) if bot.token == token => Ok(()),
+        Some(_) => Err(AppError::Unauthorized),
+        None => Err(AppError::NotFound(format!("Bot '{}' not registered", nick))),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Op notification helper
+// ---------------------------------------------------------------------------
+
+async fn notify_ops(state: &AppState, message: &str) {
+    let ops = state.hub_state.ops.read().await.clone();
+    for op in &ops {
+        let cmd = serde_json::json!({
+            "type": "send_to",
+            "nick": op,
+            "message": message,
+        });
+        let _ = state.admin_tx.send(cmd.to_string()).await;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tells
 // ---------------------------------------------------------------------------
 
@@ -519,6 +548,8 @@ pub async fn register_bot(
     State(state): State<AppState>,
     Json(body): Json<BotRegisterRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    let token = uuid::Uuid::new_v4().to_string();
+
     // Create a RegisteredBot entry in the bot registry
     {
         let mut bots = state.bot_registry.bots.write().await;
@@ -534,6 +565,7 @@ pub async fn register_bot(
                 tag: body.tag.clone(),
                 commands: commands_set,
                 event_tx,
+                token: token.clone(),
             },
         );
     }
@@ -559,6 +591,9 @@ pub async fn register_bot(
         engine.disable_commands(&body.commands).await;
     }
 
+    // Notify ops about the new bot registration
+    notify_ops(&state, &format!("Bot '{}' registered, claiming: {:?}", body.nick, body.commands)).await;
+
     tracing::info!(
         "Bot '{}' registered, claiming commands: {:?}",
         body.nick,
@@ -567,6 +602,7 @@ pub async fn register_bot(
     Ok(Json(serde_json::json!({
         "status": "registered",
         "nick": body.nick,
+        "token": token,
         "commands": body.commands,
     })))
 }
@@ -574,12 +610,16 @@ pub async fn register_bot(
 #[derive(Deserialize)]
 pub struct BotUnregisterRequest {
     pub nick: String,
+    pub token: String,
 }
 
 pub async fn unregister_bot(
     State(state): State<AppState>,
     Json(body): Json<BotUnregisterRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    // Validate token before allowing unregister
+    validate_bot_token(&state, &body.nick, &body.token).await?;
+
     // Remove from registry and collect the bot's commands
     let commands = {
         let mut bots = state.bot_registry.bots.write().await;
@@ -601,6 +641,9 @@ pub async fn unregister_bot(
         engine.enable_all().await;
     }
 
+    // Notify ops about the bot unregistration
+    notify_ops(&state, &format!("Bot '{}' unregistered", body.nick)).await;
+
     tracing::info!("Bot '{}' unregistered, re-enabling built-in commands", body.nick);
     Ok(Json(serde_json::json!({
         "status": "unregistered",
@@ -616,12 +659,15 @@ pub async fn unregister_bot(
 #[derive(Deserialize)]
 pub struct PollQuery {
     pub nick: String,
+    pub token: String,
 }
 
 pub async fn poll_commands(
     State(state): State<AppState>,
     Query(params): Query<PollQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    validate_bot_token(&state, &params.nick, &params.token).await?;
+
     let bots = state.bot_registry.bots.read().await;
     let bot = bots.get(&params.nick).ok_or_else(|| {
         AppError::NotFound(format!("Bot '{}' not registered", params.nick))
@@ -643,6 +689,8 @@ pub async fn bot_events(
     State(state): State<AppState>,
     Query(params): Query<PollQuery>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, AppError> {
+    validate_bot_token(&state, &params.nick, &params.token).await?;
+
     let bots = state.bot_registry.bots.read().await;
     let bot = bots
         .get(&params.nick)
@@ -676,22 +724,15 @@ pub async fn bot_events(
 pub struct BotChatRequest {
     pub nick: String,
     pub message: String,
+    pub token: String,
 }
 
 pub async fn bot_chat(
     State(state): State<AppState>,
     Json(body): Json<BotChatRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    // Verify bot is registered
-    {
-        let bots = state.bot_registry.bots.read().await;
-        if !bots.contains_key(&body.nick) {
-            return Err(AppError::NotFound(format!(
-                "Bot '{}' not registered",
-                body.nick
-            )));
-        }
-    }
+    validate_bot_token(&state, &body.nick, &body.token).await?;
+
     let cmd = serde_json::json!({
         "type": "send_chat_as",
         "nick": body.nick,
@@ -710,21 +751,15 @@ pub struct BotPmRequest {
     pub from: String,
     pub to: String,
     pub message: String,
+    pub token: String,
 }
 
 pub async fn bot_pm(
     State(state): State<AppState>,
     Json(body): Json<BotPmRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    {
-        let bots = state.bot_registry.bots.read().await;
-        if !bots.contains_key(&body.from) {
-            return Err(AppError::NotFound(format!(
-                "Bot '{}' not registered",
-                body.from
-            )));
-        }
-    }
+    validate_bot_token(&state, &body.from, &body.token).await?;
+
     let cmd = serde_json::json!({
         "type": "send_pm_as",
         "from": body.from,

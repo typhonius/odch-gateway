@@ -130,6 +130,11 @@ jwt_secret = "{jwt_secret}"
 
     let gateway_config_path = format!("{}/gateway.toml", config_dir);
     fs::write(&gateway_config_path, &gateway_config)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&gateway_config_path, fs::Permissions::from_mode(0o600))?;
+    }
     println!("  Wrote {}", gateway_config_path);
 
     // 5. Write hub config
@@ -151,6 +156,11 @@ users_per_fork = 1000
 
     let hub_config_path = format!("{}/hub.conf", config_dir);
     fs::write(&hub_config_path, &hub_config)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&hub_config_path, fs::Permissions::from_mode(0o600))?;
+    }
     println!("  Wrote {}", hub_config_path);
 
     // 6. Optionally create systemd services

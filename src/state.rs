@@ -83,6 +83,7 @@ pub struct RegisteredBot {
     pub tag: String,
     pub commands: std::collections::HashSet<String>,
     pub event_tx: tokio::sync::broadcast::Sender<BotEvent>,
+    pub token: String,
 }
 
 /// Registry of external bots connected via the Bot API.
