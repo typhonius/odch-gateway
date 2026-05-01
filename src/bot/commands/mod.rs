@@ -486,19 +486,11 @@ async fn topic(ctx: CommandContext) -> CommandResponse {
         return CommandResponse::ChatSingle("Usage: !topic <new topic>".to_string());
     }
 
-    // Prepend hub name: "Chaotic Neutral - Welcome back"
-    let hub_name = ctx.hub_state.hub_name.read().await.clone();
-    let display = if hub_name.is_empty() {
-        new_topic.to_string()
-    } else {
-        format!("{} - {}", hub_name, new_topic)
-    };
-
-    // Update the hub's internal name and broadcast to all clients.
-    // This persists for new connections (until hub restart).
+    // Set topic via hub's set_topic command.
+    // Hub displays as "ODCH - topic" (short_name configurable).
     let cmd = serde_json::json!({
-        "type": "set_hub_name",
-        "name": display,
+        "type": "set_topic",
+        "topic": new_topic,
     });
     let _ = ctx.hub_tx.send(cmd.to_string()).await;
 
