@@ -91,6 +91,7 @@ async fn connect_and_run(
     send_json(&mut stream, r#"{"type":"get_status"}"#).await?;
     send_json(&mut stream, r#"{"type":"get_user_list"}"#).await?;
 
+
     // Main event loop
     let mut read_buf = vec![0u8; 65536];
     let mut partial = Vec::new();
