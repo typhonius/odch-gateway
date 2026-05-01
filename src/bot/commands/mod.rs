@@ -494,12 +494,13 @@ async fn topic(ctx: CommandContext) -> CommandResponse {
         format!("{} - {}", hub_name, new_topic)
     };
 
-    // Send raw $HubName to set the title bar in DC clients
-    let hub_name_cmd = serde_json::json!({
-        "type": "send_all",
-        "message": format!("$HubName {}", display),
+    // Update the hub's internal name and broadcast to all clients.
+    // This persists for new connections (until hub restart).
+    let cmd = serde_json::json!({
+        "type": "set_hub_name",
+        "name": display,
     });
-    let _ = ctx.hub_tx.send(hub_name_cmd.to_string()).await;
+    let _ = ctx.hub_tx.send(cmd.to_string()).await;
 
     CommandResponse::ChatAll(format!("Topic set to: {}", new_topic))
 }
