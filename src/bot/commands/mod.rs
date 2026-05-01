@@ -486,10 +486,18 @@ async fn topic(ctx: CommandContext) -> CommandResponse {
         return CommandResponse::ChatSingle("Usage: !topic <new topic>".to_string());
     }
 
-    // Send raw $HubName to actually set the topic in DC clients
+    // Prepend hub name: "Chaotic Neutral - Welcome back"
+    let hub_name = ctx.hub_state.hub_name.read().await.clone();
+    let display = if hub_name.is_empty() {
+        new_topic.to_string()
+    } else {
+        format!("{} - {}", hub_name, new_topic)
+    };
+
+    // Send raw $HubName to set the title bar in DC clients
     let hub_name_cmd = serde_json::json!({
         "type": "send_all",
-        "message": format!("$HubName {}", new_topic),
+        "message": format!("$HubName {}", display),
     });
     let _ = ctx.hub_tx.send(hub_name_cmd.to_string()).await;
 

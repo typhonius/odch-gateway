@@ -24,6 +24,7 @@ pub struct CommandContext {
     pub db: PgPool,
     pub hub_tx: mpsc::Sender<String>,
     pub bot_registry: Arc<crate::state::BotRegistry>,
+    pub hub_state: Arc<crate::state::HubState>,
 }
 
 /// Response from a command handler.
@@ -155,6 +156,7 @@ impl CommandEngine {
             db,
             hub_tx,
             bot_registry,
+            hub_state: self.hub_state.clone(),
         };
 
         Some(handler(ctx).await)
