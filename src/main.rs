@@ -8,6 +8,7 @@ mod error;
 mod event;
 mod greeter;
 mod hub;
+mod opchat;
 mod init;
 mod state;
 mod webhook;
@@ -256,6 +257,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let gr_config = config.greeting.clone();
         tokio::spawn(async move {
             greeter::run(gr_bus, gr_state, gr_tx, gr_config).await;
+        });
+    }
+
+    // Spawn OPChat relay (if configured)
+    if let Some(ref opchat_config) = config.opchat {
+        let oc_bus = event_bus.clone();
+        let oc_state = hub_state.clone();
+        let oc_tx = app_state.admin_tx.as_ref().clone();
+        let oc_config = opchat_config.clone();
+        tokio::spawn(async move {
+            opchat::run(oc_bus, oc_state, oc_tx, oc_config).await;
         });
     }
 

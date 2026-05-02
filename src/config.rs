@@ -12,6 +12,7 @@ pub struct AppConfig {
     pub rate_limit: Option<RateLimitConfig>,
     pub admin_ui: Option<AdminUiConfig>,
     pub greeting: Option<GreetingConfig>,
+    pub opchat: Option<OpChatConfig>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -83,6 +84,24 @@ pub struct GreetingConfig {
     /// Message sent to users on connect. Supports {hub_name} placeholder.
     /// Default: "Welcome to {hub_name}. Type !help for commands."
     pub welcome_message: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct OpChatConfig {
+    /// Virtual user nick for OP group chat. Default: "OPChat"
+    #[serde(default = "default_opchat_nick")]
+    pub nick: String,
+    /// Description shown in user list. Default: "OP Group Chat"
+    #[serde(default = "default_opchat_description")]
+    pub description: String,
+}
+
+fn default_opchat_nick() -> String {
+    "OPChat".to_string()
+}
+
+fn default_opchat_description() -> String {
+    "OP Group Chat".to_string()
 }
 
 fn default_session_expiry_hours() -> u64 {

@@ -89,7 +89,7 @@ impl CommandEngine {
         }
     }
 
-    /// Disable built-in handling for commands that Dragon handles.
+    /// Disable built-in handling for commands claimed by an external bot.
     pub async fn disable_commands(&self, names: &[String]) {
         let mut disabled = self.disabled.write().await;
         for name in names {
@@ -97,7 +97,7 @@ impl CommandEngine {
         }
     }
 
-    /// Re-enable all built-in commands (when Dragon disconnects).
+    /// Re-enable all built-in commands (when an external bot disconnects).
     pub async fn enable_all(&self) {
         self.disabled.write().await.clear();
     }

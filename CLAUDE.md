@@ -1,6 +1,6 @@
 # odch-gateway
 
-Rust REST/WebSocket API gateway for OpenDCHub. Owns the PostgreSQL database. Provides built-in bot commands (moderation + fun), manages virtual users (ODCHBot/OPChat) on the hub, and hosts an admin web UI.
+Rust REST/WebSocket API gateway for OpenDCHub. Owns the PostgreSQL database. Provides built-in bot commands (moderation + chat history), built-in OPChat relay, manages virtual users on the hub via the Bot API, and hosts an admin web UI.
 
 ## Building and testing
 
@@ -24,6 +24,7 @@ src/
   event.rs         — HubEvent enum (hub events + gateway-originated: Ban, Gag, MaintenanceTick)
   bus.rs           — EventBus (broadcast channel)
   greeter.rs       — Connection greeter (sends topic + welcome on UserJoin)
+  opchat.rs        — Built-in OP group chat relay (relays PMs between ops)
   hub/
     mod.rs         — Module declaration
     socket.rs      — Unix socket client (JSON protocol to hub), chat mediation (gag check + echo)

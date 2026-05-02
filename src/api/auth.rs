@@ -81,6 +81,7 @@ mod tests {
             rate_limit: None,
             admin_ui: None,
             greeting: None,
+            opchat: None,
         };
         let (admin_tx, _) = tokio::sync::mpsc::channel(1);
         AppState {

@@ -29,6 +29,12 @@ requests_per_minute = 10
 # Message sent to users on connect. Supports {hub_name} placeholder.
 # welcome_message = "Welcome to {hub_name}. Type !help for commands."
 
+[opchat]
+# OP group chat relay. Registers a virtual user that relays PMs between ops.
+# Remove this section to disable OPChat.
+# nick = "OPChat"
+# description = "OP Group Chat"
+
 [admin_ui]
 # Separate listener for the admin web UI (use nginx to reverse proxy)
 bind_address = "127.0.0.1:3001"
