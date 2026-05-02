@@ -72,6 +72,10 @@ pub enum BotEvent {
         message: String,
         timestamp: chrono::DateTime<chrono::Utc>,
     },
+    /// A hub event the bot subscribed to at registration time.
+    HubEvent {
+        event: crate::event::HubEvent,
+    },
 }
 
 /// A registered external bot.
@@ -84,6 +88,8 @@ pub struct RegisteredBot {
     pub commands: std::collections::HashSet<String>,
     pub event_tx: tokio::sync::broadcast::Sender<BotEvent>,
     pub token: String,
+    /// Hub event types this bot wants to receive (e.g. "chat", "user_join", "kick").
+    pub subscribed_events: std::collections::HashSet<String>,
 }
 
 /// Registry of external bots connected via the Bot API.

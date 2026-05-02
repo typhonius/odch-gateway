@@ -542,6 +542,10 @@ pub struct BotRegisterRequest {
     pub tag: String,
     #[serde(default)]
     pub commands: Vec<String>,
+    /// Hub event types to receive on the SSE stream.
+    /// Valid types: chat, user_join, user_quit, user_info, kick, ban, unban, gag, ungag
+    #[serde(default)]
+    pub events: Vec<String>,
 }
 
 pub async fn register_bot(
@@ -551,6 +555,9 @@ pub async fn register_bot(
     let token = uuid::Uuid::new_v4().to_string();
 
     // Create a RegisteredBot entry in the bot registry
+    let subscribed_events: std::collections::HashSet<String> =
+        body.events.iter().map(|e| e.to_lowercase()).collect();
+    let has_event_subs = !subscribed_events.is_empty();
     {
         let mut bots = state.bot_registry.bots.write().await;
         let commands_set: std::collections::HashSet<String> =
@@ -566,8 +573,19 @@ pub async fn register_bot(
                 commands: commands_set,
                 event_tx,
                 token: token.clone(),
+                subscribed_events,
             },
         );
+    }
+
+    // Spawn event forwarder if bot subscribes to hub events
+    if has_event_subs {
+        let bot_nick = body.nick.clone();
+        let bus = state.event_bus.clone();
+        let registry = state.bot_registry.clone();
+        tokio::spawn(async move {
+            hub_event_forwarder(bus, registry, bot_nick).await;
+        });
     }
 
     // Send add_virtual_user command to hub
@@ -604,6 +622,7 @@ pub async fn register_bot(
         "nick": body.nick,
         "token": token,
         "commands": body.commands,
+        "events": body.events,
     })))
 }
 
@@ -705,6 +724,7 @@ pub async fn bot_events(
                     let event_name = match &event {
                         crate::state::BotEvent::Command { .. } => "command",
                         crate::state::BotEvent::PrivateMessage { .. } => "pm",
+                        crate::state::BotEvent::HubEvent { .. } => "hub_event",
                     };
                     let json = serde_json::to_string(&event).unwrap_or_default();
                     yield Ok(Event::default().event(event_name).data(json));
@@ -772,4 +792,67 @@ pub async fn bot_pm(
         .await
         .map_err(|e| AppError::Internal(format!("Failed to send: {}", e)))?;
     Ok(Json(serde_json::json!({"status": "sent"})))
+}
+
+/// Map a HubEvent to its type tag for filtering against bot subscriptions.
+fn hub_event_type_tag(event: &crate::event::HubEvent) -> &'static str {
+    use crate::event::HubEvent;
+    match event {
+        HubEvent::Chat { .. } => "chat",
+        HubEvent::UserJoin { .. } => "user_join",
+        HubEvent::UserQuit { .. } => "user_quit",
+        HubEvent::UserInfo { .. } => "user_info",
+        HubEvent::HubName { .. } => "hub_name",
+        HubEvent::OpListUpdate { .. } => "op_list",
+        HubEvent::Kick { .. } => "kick",
+        HubEvent::PrivateMessage { .. } => "pm",
+        HubEvent::GatewayStatus { .. } => "gateway_status",
+        HubEvent::Ban { .. } => "ban",
+        HubEvent::Unban { .. } => "unban",
+        HubEvent::Gag { .. } => "gag",
+        HubEvent::Ungag { .. } => "ungag",
+        HubEvent::MaintenanceTick { .. } => "maintenance_tick",
+    }
+}
+
+/// Forwards matching HubEvents from the main event bus into a bot's BotEvent channel.
+/// Runs until the bot is unregistered (removed from registry).
+async fn hub_event_forwarder(
+    event_bus: std::sync::Arc<crate::bus::EventBus>,
+    registry: std::sync::Arc<crate::state::BotRegistry>,
+    bot_nick: String,
+) {
+    let mut rx = event_bus.subscribe();
+    tracing::info!("Event forwarder started for bot '{}'", bot_nick);
+
+    loop {
+        match rx.recv().await {
+            Ok(event) => {
+                let tag = hub_event_type_tag(&event);
+
+                // Check if bot is still registered and subscribed to this event type
+                let bots = registry.bots.read().await;
+                let bot = match bots.get(&bot_nick) {
+                    Some(b) => b,
+                    None => {
+                        tracing::info!(
+                            "Bot '{}' unregistered, stopping event forwarder",
+                            bot_nick
+                        );
+                        break;
+                    }
+                };
+
+                if bot.subscribed_events.contains(tag) {
+                    let _ = bot.event_tx.send(crate::state::BotEvent::HubEvent {
+                        event: event.clone(),
+                    });
+                }
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                tracing::warn!("Event forwarder for '{}' lagged by {} events", bot_nick, n);
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+        }
+    }
 }
