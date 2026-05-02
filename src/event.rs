@@ -50,4 +50,32 @@ pub enum HubEvent {
         message: String,
         timestamp: DateTime<Utc>,
     },
+    Ban {
+        nick: String,
+        by: String,
+        reason: String,
+        timestamp: DateTime<Utc>,
+    },
+    Unban {
+        nick: String,
+        by: String,
+        timestamp: DateTime<Utc>,
+    },
+    Gag {
+        nick: String,
+        by: String,
+        reason: String,
+        timestamp: DateTime<Utc>,
+    },
+    Ungag {
+        nick: String,
+        by: String,
+        timestamp: DateTime<Utc>,
+    },
+    /// Periodic maintenance tick. Fired by a configurable timer.
+    /// Subscribers use this to perform housekeeping (purge stale
+    /// connections, expire bans/gags, etc.).
+    MaintenanceTick {
+        timestamp: DateTime<Utc>,
+    },
 }

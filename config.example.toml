@@ -5,6 +5,8 @@ cors_origins = ["http://localhost:5173"]
 [hub]
 socket_path = "/opt/opendchub/.opendchub/gateway.sock"
 secret = "CHANGE_ME_shared_secret"
+# Interval in seconds for periodic maintenance (purge stale connections, etc.)
+# maintenance_interval_secs = 60
 
 [database]
 # PostgreSQL (required — gateway owns the schema, runs migrations on startup)
@@ -22,6 +24,10 @@ max_webhooks = 50
 [rate_limit]
 # Max requests per minute per API key on write endpoints
 requests_per_minute = 10
+
+[greeting]
+# Message sent to users on connect. Supports {hub_name} placeholder.
+# welcome_message = "Welcome to {hub_name}. Type !help for commands."
 
 [admin_ui]
 # Separate listener for the admin web UI (use nginx to reverse proxy)

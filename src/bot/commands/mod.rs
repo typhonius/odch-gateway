@@ -4,6 +4,7 @@
 
 use super::{CommandContext, CommandEngine, CommandHandler, CommandResponse};
 use crate::db::queries;
+use crate::event::HubEvent;
 
 /// Register all built-in commands.
 pub fn register_all(engine: &mut CommandEngine) {
@@ -351,10 +352,17 @@ async fn ban(ctx: CommandContext) -> CommandResponse {
 
     match queries::create_ban(&ctx.db, Some(target), None, &reason, &ctx.nick, None).await {
         Ok(_) => {
-            let cmd = serde_json::json!({"type": "ban", "entry": target});
-            let _ = ctx.hub_tx.send(cmd.to_string()).await;
+            // Kick the user (NMDC protocol operation)
             let kick_cmd = serde_json::json!({"type": "kick", "nick": target});
             let _ = ctx.hub_tx.send(kick_cmd.to_string()).await;
+
+            ctx.event_bus.publish(HubEvent::Ban {
+                nick: target.to_string(),
+                by: ctx.nick.clone(),
+                reason: reason.clone(),
+                timestamp: chrono::Utc::now(),
+            });
+
             CommandResponse::ChatAll(format!(
                 "{} banned {}{}",
                 ctx.nick,
@@ -379,8 +387,13 @@ async fn unban(ctx: CommandContext) -> CommandResponse {
     match queries::check_ban(&ctx.db, target).await {
         Ok(Some(active_ban)) => {
             queries::delete_ban(&ctx.db, active_ban.id).await.ok();
-            let cmd = serde_json::json!({"type": "unban", "entry": target});
-            let _ = ctx.hub_tx.send(cmd.to_string()).await;
+
+            ctx.event_bus.publish(HubEvent::Unban {
+                nick: target.to_string(),
+                by: ctx.nick.clone(),
+                timestamp: chrono::Utc::now(),
+            });
+
             CommandResponse::ChatAll(format!("{} unbanned {}", ctx.nick, target))
         }
         Ok(None) => CommandResponse::ChatSingle(format!("{} is not banned", target)),
@@ -433,18 +446,24 @@ async fn gag(ctx: CommandContext) -> CommandResponse {
 
     match queries::create_gag(&ctx.db, target, &reason, &ctx.nick, None).await {
         Ok(_) => {
-            // Send gag command to hub
-            let cmd = serde_json::json!({"type": "gag", "nick": target});
+            // Notify the victim via raw protocol message
+            let victim_msg = format!(
+                "<Hub-Security> You have been gagged by {}: {}|",
+                ctx.nick, reason
+            );
+            let cmd = serde_json::json!({
+                "type": "send_raw_to",
+                "nick": target,
+                "data": victim_msg,
+            });
             let _ = ctx.hub_tx.send(cmd.to_string()).await;
 
-            // PM the victim directly (not through CommandResponse which targets the invoker)
-            let victim_pm = serde_json::json!({
-                "type": "send_pm_as",
-                "from": "Hub-Security",
-                "to": target,
-                "message": format!("You have been gagged by {}: {}", ctx.nick, reason),
+            ctx.event_bus.publish(HubEvent::Gag {
+                nick: target.to_string(),
+                by: ctx.nick.clone(),
+                reason: reason.clone(),
+                timestamp: chrono::Utc::now(),
             });
-            let _ = ctx.hub_tx.send(victim_pm.to_string()).await;
 
             // Public announcement
             CommandResponse::ChatAll(format!(
@@ -471,8 +490,13 @@ async fn ungag(ctx: CommandContext) -> CommandResponse {
     match queries::check_gag(&ctx.db, target).await {
         Ok(Some(active_gag)) => {
             queries::delete_gag(&ctx.db, active_gag.id).await.ok();
-            let cmd = serde_json::json!({"type": "ungag", "nick": target});
-            let _ = ctx.hub_tx.send(cmd.to_string()).await;
+
+            ctx.event_bus.publish(HubEvent::Ungag {
+                nick: target.to_string(),
+                by: ctx.nick.clone(),
+                timestamp: chrono::Utc::now(),
+            });
+
             CommandResponse::ChatAll(format!("{} ungagged {}", ctx.nick, target))
         }
         Ok(None) => CommandResponse::ChatSingle(format!("{} is not gagged", target)),
@@ -486,11 +510,22 @@ async fn topic(ctx: CommandContext) -> CommandResponse {
         return CommandResponse::ChatSingle("Usage: !topic <new topic>".to_string());
     }
 
-    // Set topic via hub's set_topic command.
-    // Hub displays as "ODCH - topic" (short_name configurable).
+    // Update gateway state
+    *ctx.hub_state.topic.write().await = new_topic.to_string();
+
+    // Persist to database
+    queries::set_setting(&ctx.db, "hub_topic", new_topic).await.ok();
+
+    // Broadcast topic change to all connected users via raw NMDC
+    let hub_name = ctx.hub_state.hub_name.read().await.clone();
+    let raw = if new_topic.is_empty() {
+        format!("$HubName {}|", hub_name)
+    } else {
+        format!("$HubName {} - {}|", hub_name, new_topic)
+    };
     let cmd = serde_json::json!({
-        "type": "set_topic",
-        "topic": new_topic,
+        "type": "send_raw",
+        "data": raw,
     });
     let _ = ctx.hub_tx.send(cmd.to_string()).await;
 

@@ -80,6 +80,7 @@ mod tests {
             webhook: None,
             rate_limit: None,
             admin_ui: None,
+            greeting: None,
         };
         let (admin_tx, _) = tokio::sync::mpsc::channel(1);
         AppState {

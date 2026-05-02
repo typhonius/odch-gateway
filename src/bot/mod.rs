@@ -25,6 +25,7 @@ pub struct CommandContext {
     pub hub_tx: mpsc::Sender<String>,
     pub bot_registry: Arc<crate::state::BotRegistry>,
     pub hub_state: Arc<crate::state::HubState>,
+    pub event_bus: Arc<crate::bus::EventBus>,
 }
 
 /// Response from a command handler.
@@ -110,6 +111,7 @@ impl CommandEngine {
         db: PgPool,
         hub_tx: mpsc::Sender<String>,
         bot_registry: Arc<crate::state::BotRegistry>,
+        event_bus: Arc<crate::bus::EventBus>,
     ) -> Option<CommandResponse> {
         let msg = message.trim();
         if !msg.starts_with('!') {
@@ -157,6 +159,7 @@ impl CommandEngine {
             hub_tx,
             bot_registry,
             hub_state: self.hub_state.clone(),
+            event_bus,
         };
 
         Some(handler(ctx).await)

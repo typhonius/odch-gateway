@@ -2,8 +2,9 @@ use axum::extract::{Path, State};
 use axum::Json;
 use serde::Deserialize;
 
-use crate::api::chat::sanitize_nmdc;
+use crate::db::queries;
 use crate::error::AppError;
+use crate::event::HubEvent;
 use crate::state::AppState;
 
 fn validate_nick(nick: &str) -> Result<(), AppError> {
@@ -77,22 +78,30 @@ pub async fn ban_user(
 ) -> Result<Json<serde_json::Value>, AppError> {
     validate_nick(&nick)?;
 
-    let ban_target = if let Some(ref ip) = body.ip {
-        sanitize_nmdc(ip)
-    } else {
-        nick.clone()
-    };
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("Database not configured".into()))?;
 
-    send_hub_command(
-        &state,
-        serde_json::json!({"type": "ban", "entry": ban_target}),
-    )
-    .await?;
+    let ban_nick = if body.ip.is_some() { None } else { Some(nick.as_str()) };
+    let ban_ip = body.ip.as_deref();
+    queries::create_ban(pool.inner(), ban_nick, ban_ip, &body.reason, "api", None).await?;
+
+    // Kick the user if they're online (NMDC protocol operation)
+    if state.hub_state.users.read().await.contains_key(&nick) {
+        send_hub_command(&state, serde_json::json!({"type": "kick", "nick": nick})).await?;
+    }
+
+    state.event_bus.publish(HubEvent::Ban {
+        nick: nick.clone(),
+        by: "api".to_string(),
+        reason: body.reason.clone(),
+        timestamp: chrono::Utc::now(),
+    });
 
     Ok(Json(serde_json::json!({
         "status": "banned",
         "nick": nick,
-        "target": ban_target,
         "reason": body.reason,
     })))
 }
@@ -104,7 +113,25 @@ pub async fn unban_user(
 ) -> Result<Json<serde_json::Value>, AppError> {
     validate_nick(&nick)?;
 
-    send_hub_command(&state, serde_json::json!({"type": "unban", "entry": nick})).await?;
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("Database not configured".into()))?;
+
+    match queries::check_ban(pool.inner(), &nick).await? {
+        Some(ban) => {
+            queries::delete_ban(pool.inner(), ban.id).await?;
+        }
+        None => {
+            return Err(AppError::NotFound(format!("{} is not banned", nick)));
+        }
+    }
+
+    state.event_bus.publish(HubEvent::Unban {
+        nick: nick.clone(),
+        by: "api".to_string(),
+        timestamp: chrono::Utc::now(),
+    });
 
     Ok(Json(serde_json::json!({
         "status": "unbanned",
@@ -120,7 +147,19 @@ pub async fn gag_user(
 ) -> Result<Json<serde_json::Value>, AppError> {
     validate_nick(&nick)?;
 
-    send_hub_command(&state, serde_json::json!({"type": "gag", "nick": nick})).await?;
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("Database not configured".into()))?;
+
+    queries::create_gag(pool.inner(), &nick, &body.reason, "api", None).await?;
+
+    state.event_bus.publish(HubEvent::Gag {
+        nick: nick.clone(),
+        by: "api".to_string(),
+        reason: body.reason.clone(),
+        timestamp: chrono::Utc::now(),
+    });
 
     Ok(Json(serde_json::json!({
         "status": "gagged",
@@ -136,7 +175,25 @@ pub async fn ungag_user(
 ) -> Result<Json<serde_json::Value>, AppError> {
     validate_nick(&nick)?;
 
-    send_hub_command(&state, serde_json::json!({"type": "ungag", "nick": nick})).await?;
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("Database not configured".into()))?;
+
+    match queries::check_gag(pool.inner(), &nick).await? {
+        Some(gag) => {
+            queries::delete_gag(pool.inner(), gag.id).await?;
+        }
+        None => {
+            return Err(AppError::NotFound(format!("{} is not gagged", nick)));
+        }
+    }
+
+    state.event_bus.publish(HubEvent::Ungag {
+        nick: nick.clone(),
+        by: "api".to_string(),
+        timestamp: chrono::Utc::now(),
+    });
 
     Ok(Json(serde_json::json!({
         "status": "ungagged",

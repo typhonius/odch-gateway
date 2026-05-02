@@ -483,3 +483,69 @@ pub async fn delete_bot_data(pool: &PgPool, namespace: &str, key: &str) -> Resul
         .await?;
     Ok(result.rows_affected() > 0)
 }
+
+// ---------------------------------------------------------------------------
+// Settings
+// ---------------------------------------------------------------------------
+
+pub async fn get_setting(pool: &PgPool, key: &str) -> Result<Option<String>, AppError> {
+    let value = sqlx::query_scalar::<_, String>(
+        "SELECT value FROM settings WHERE key = $1",
+    )
+    .bind(key)
+    .fetch_optional(pool)
+    .await?;
+    Ok(value)
+}
+
+pub async fn set_setting(pool: &PgPool, key: &str, value: &str) -> Result<(), AppError> {
+    sqlx::query(
+        "INSERT INTO settings (key, value, updated_at) VALUES ($1, $2, NOW()) \
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
+    )
+    .bind(key)
+    .bind(value)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Maintenance
+// ---------------------------------------------------------------------------
+
+pub async fn purge_expired_bans(pool: &PgPool) -> Result<u64, AppError> {
+    let result = sqlx::query(
+        "DELETE FROM bans WHERE expires_at IS NOT NULL AND expires_at <= NOW()",
+    )
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+pub async fn purge_expired_gags(pool: &PgPool) -> Result<u64, AppError> {
+    let result = sqlx::query(
+        "DELETE FROM gags WHERE expires_at IS NOT NULL AND expires_at <= NOW()",
+    )
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+pub async fn close_orphaned_sessions(
+    pool: &PgPool,
+    online_nicks: &[String],
+) -> Result<u64, AppError> {
+    // Close sessions for users who are no longer in the online list
+    // but still have an open session (disconnected_at IS NULL)
+    let result = sqlx::query(
+        "UPDATE user_sessions SET disconnected_at = NOW() \
+         WHERE disconnected_at IS NULL AND user_id IN (\
+           SELECT id FROM users WHERE nick != ALL($1)\
+         )",
+    )
+    .bind(online_nicks)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
+}

@@ -98,6 +98,11 @@ fn event_type_name(event: &HubEvent) -> &'static str {
         HubEvent::Kick { .. } => "Kick",
         HubEvent::PrivateMessage { .. } => "PrivateMessage",
         HubEvent::GatewayStatus { .. } => "GatewayStatus",
+        HubEvent::Ban { .. } => "Ban",
+        HubEvent::Unban { .. } => "Unban",
+        HubEvent::Gag { .. } => "Gag",
+        HubEvent::Ungag { .. } => "Ungag",
+        HubEvent::MaintenanceTick { .. } => "MaintenanceTick",
     }
 }
 

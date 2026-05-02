@@ -122,6 +122,11 @@ fn event_type_tag(event: &HubEvent) -> &'static str {
         HubEvent::Kick { .. } => "kick",
         HubEvent::PrivateMessage { .. } => "pm",
         HubEvent::GatewayStatus { .. } => "gateway_status",
+        HubEvent::Ban { .. } => "ban",
+        HubEvent::Unban { .. } => "unban",
+        HubEvent::Gag { .. } => "gag",
+        HubEvent::Ungag { .. } => "ungag",
+        HubEvent::MaintenanceTick { .. } => "maintenance_tick",
     }
 }
 

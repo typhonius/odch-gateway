@@ -8,6 +8,8 @@ use tracing::{error, info, warn};
 
 use crate::bus::EventBus;
 use crate::config::HubSocketConfig;
+use crate::db::pool::DbPool;
+use crate::db::queries;
 use crate::event::HubEvent;
 use crate::state::{HubState, HubUser};
 
@@ -29,13 +31,17 @@ pub async fn run(
     event_bus: Arc<EventBus>,
     hub_state: Arc<HubState>,
     mut cmd_rx: mpsc::Receiver<String>,
+    hub_tx: mpsc::Sender<String>,
+    db_pool: Option<DbPool>,
 ) {
     let mut delay = DEFAULT_RECONNECT_DELAY;
 
     loop {
         info!("Hub socket connecting to {}...", config.socket_path);
 
-        match connect_and_run(&config, &event_bus, &hub_state, &mut cmd_rx).await {
+        match connect_and_run(&config, &event_bus, &hub_state, &mut cmd_rx, &hub_tx, &db_pool)
+            .await
+        {
             Ok(()) => {
                 delay = DEFAULT_RECONNECT_DELAY;
                 info!("Hub socket disconnected cleanly");
@@ -63,6 +69,8 @@ async fn connect_and_run(
     event_bus: &Arc<EventBus>,
     hub_state: &Arc<HubState>,
     cmd_rx: &mut mpsc::Receiver<String>,
+    hub_tx: &mpsc::Sender<String>,
+    db_pool: &Option<DbPool>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut stream = UnixStream::connect(&config.socket_path).await?;
     info!("Hub socket connected to {}", config.socket_path);
@@ -131,7 +139,7 @@ async fn connect_and_run(
 
                             let json_bytes = &partial[4..4 + msg_len];
                             if let Ok(json_str) = std::str::from_utf8(json_bytes) {
-                                handle_event(json_str, event_bus, hub_state).await;
+                                handle_event(json_str, event_bus, hub_state, hub_tx, db_pool).await;
                             }
 
                             partial.drain(..4 + msg_len);
@@ -181,7 +189,13 @@ async fn read_json(
 }
 
 /// Process a JSON event from the hub.
-async fn handle_event(json_str: &str, event_bus: &Arc<EventBus>, hub_state: &Arc<HubState>) {
+async fn handle_event(
+    json_str: &str,
+    event_bus: &Arc<EventBus>,
+    hub_state: &Arc<HubState>,
+    hub_tx: &mpsc::Sender<String>,
+    db_pool: &Option<DbPool>,
+) {
     let value: serde_json::Value = match serde_json::from_str(json_str) {
         Ok(v) => v,
         Err(e) => {
@@ -204,11 +218,37 @@ async fn handle_event(json_str: &str, event_bus: &Arc<EventBus>, hub_state: &Arc
             let nick = value.get("nick").and_then(|v| v.as_str()).unwrap_or("");
             let message = value.get("message").and_then(|v| v.as_str()).unwrap_or("");
 
-            event_bus.publish(HubEvent::Chat {
-                nick: nick.to_string(),
-                message: message.to_string(),
-                timestamp: chrono::Utc::now(),
-            });
+            // Check if user is gagged
+            let is_gagged = if let Some(pool) = db_pool {
+                matches!(queries::check_gag(pool.inner(), nick).await, Ok(Some(_)))
+            } else {
+                false
+            };
+
+            if is_gagged {
+                // Notify the user, don't broadcast or publish to event bus
+                let cmd = serde_json::json!({
+                    "type": "send_raw_to",
+                    "nick": nick,
+                    "data": "<Hub-Security> You are gagged. No talking for you.|",
+                });
+                let _ = hub_tx.send(cmd.to_string()).await;
+            } else {
+                // Echo the chat message back to hub for broadcast
+                let raw = format!("<{}> {}|", nick, message);
+                let cmd = serde_json::json!({
+                    "type": "send_raw",
+                    "data": raw,
+                });
+                let _ = hub_tx.send(cmd.to_string()).await;
+
+                // Publish to event bus for DB storage, webhooks, bot commands, etc.
+                event_bus.publish(HubEvent::Chat {
+                    nick: nick.to_string(),
+                    message: message.to_string(),
+                    timestamp: chrono::Utc::now(),
+                });
+            }
         }
 
         "user_join" => {

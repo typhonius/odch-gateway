@@ -13,16 +13,22 @@ use crate::bus::EventBus;
 use crate::db::pool::DbPool;
 use crate::db::queries;
 use crate::event::HubEvent;
+use crate::state::HubState;
 
 /// Run the event processor loop. Should be spawned as a tokio task.
-pub async fn run(event_bus: Arc<EventBus>, db_pool: DbPool, hub_tx: mpsc::Sender<String>) {
+pub async fn run(
+    event_bus: Arc<EventBus>,
+    db_pool: DbPool,
+    hub_tx: mpsc::Sender<String>,
+    hub_state: Arc<HubState>,
+) {
     let mut rx = event_bus.subscribe();
     tracing::info!("Event processor started");
 
     loop {
         match rx.recv().await {
             Ok(event) => {
-                if let Err(e) = process_event(&db_pool, &event, &hub_tx).await {
+                if let Err(e) = process_event(&db_pool, &event, &hub_tx, &hub_state).await {
                     tracing::warn!("Event processor error: {}", e);
                 }
             }
@@ -41,6 +47,7 @@ async fn process_event(
     pool: &DbPool,
     event: &HubEvent,
     hub_tx: &mpsc::Sender<String>,
+    hub_state: &Arc<HubState>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let db = pool.inner();
 
@@ -51,6 +58,14 @@ async fn process_event(
         }
 
         HubEvent::UserJoin { nick, .. } => {
+            // Check if user is banned — kick immediately if so
+            if let Ok(Some(_ban)) = queries::check_ban(db, nick).await {
+                let kick_cmd = serde_json::json!({"type": "kick", "nick": nick});
+                let _ = hub_tx.send(kick_cmd.to_string()).await;
+                tracing::info!("Kicked banned user {} on join", nick);
+                return Ok(());
+            }
+
             let user_id = queries::upsert_user(db, nick, "", 0, "", "").await?;
             queries::open_session(db, user_id, "", false).await.ok();
 
@@ -114,6 +129,33 @@ async fn process_event(
             ..
         } => {
             queries::upsert_user(db, nick, email, *share as i64, description, speed).await?;
+        }
+
+        HubEvent::MaintenanceTick { .. } => {
+            // Purge stale connections (users stuck in NMDC handshake)
+            let cmd = serde_json::json!({"type": "purge_stale"});
+            let _ = hub_tx.send(cmd.to_string()).await;
+
+            // Purge expired bans and gags
+            if let Ok(n) = queries::purge_expired_bans(db).await {
+                if n > 0 {
+                    tracing::info!("Purged {} expired ban(s)", n);
+                }
+            }
+            if let Ok(n) = queries::purge_expired_gags(db).await {
+                if n > 0 {
+                    tracing::info!("Purged {} expired gag(s)", n);
+                }
+            }
+
+            // Close orphaned sessions (users no longer online but session still open)
+            let online_nicks: Vec<String> =
+                hub_state.users.read().await.keys().cloned().collect();
+            if let Ok(n) = queries::close_orphaned_sessions(db, &online_nicks).await {
+                if n > 0 {
+                    tracing::info!("Closed {} orphaned session(s)", n);
+                }
+            }
         }
 
         _ => {}

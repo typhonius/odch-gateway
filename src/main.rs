@@ -6,6 +6,7 @@ mod config;
 mod db;
 mod error;
 mod event;
+mod greeter;
 mod hub;
 mod init;
 mod state;
@@ -151,6 +152,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    // Restore persisted settings from database
+    if let Some(ref pool) = db_pool {
+        if let Ok(Some(topic)) = db::queries::get_setting(pool.inner(), "hub_topic").await {
+            *hub_state.topic.write().await = topic.clone();
+            tracing::info!("Restored hub topic from database: {}", topic);
+        }
+    }
+
     // Set up webhook manager (database-backed)
     let webhook_config = config
         .webhook
@@ -200,8 +209,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let bus = event_bus.clone();
         let state = hub_state.clone();
+        let hub_tx = app_state.admin_tx.as_ref().clone();
+        let hub_db = app_state.db_pool.clone();
         tokio::spawn(async move {
-            hub::socket::run(hub_config, bus, state, admin_rx).await;
+            hub::socket::run(hub_config, bus, state, admin_rx, hub_tx, hub_db).await;
         });
     }
 
@@ -210,14 +221,48 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let ep_bus = event_bus.clone();
         let ep_pool = pool.clone();
         let ep_tx = app_state.admin_tx.as_ref().clone();
+        let ep_state = hub_state.clone();
         tokio::spawn(async move {
-            db::event_processor::run(ep_bus, ep_pool, ep_tx).await;
+            db::event_processor::run(ep_bus, ep_pool, ep_tx, ep_state).await;
+        });
+    }
+
+    // Spawn maintenance tick timer
+    {
+        let tick_bus = event_bus.clone();
+        let tick_interval = config
+            .hub
+            .as_ref()
+            .map(|h| h.maintenance_interval_secs)
+            .unwrap_or(60);
+        tokio::spawn(async move {
+            let mut interval =
+                tokio::time::interval(std::time::Duration::from_secs(tick_interval));
+            interval.tick().await; // skip first immediate tick
+            loop {
+                interval.tick().await;
+                tick_bus.publish(crate::event::HubEvent::MaintenanceTick {
+                    timestamp: chrono::Utc::now(),
+                });
+            }
+        });
+    }
+
+    // Spawn connection greeter (sends topic + welcome message on UserJoin)
+    {
+        let gr_bus = event_bus.clone();
+        let gr_state = hub_state.clone();
+        let gr_tx = app_state.admin_tx.as_ref().clone();
+        let gr_config = config.greeting.clone();
+        tokio::spawn(async move {
+            greeter::run(gr_bus, gr_state, gr_tx, gr_config).await;
         });
     }
 
     // Spawn built-in bot command processor
     if let (Some(ref pool), Some(ref engine)) = (&app_state.db_pool, &command_engine) {
         let bot_bus = event_bus.clone();
+        let bot_event_bus = event_bus.clone();
         let bot_pool = pool.inner().clone();
         let bot_tx = app_state.admin_tx.clone();
         let bot_engine = engine.clone();
@@ -234,7 +279,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }) => {
                         let tx: tokio::sync::mpsc::Sender<String> = (*bot_tx).clone();
                         if let Some(response) = bot_engine
-                            .try_handle(nick, message, bot_pool.clone(), tx.clone(), bot_reg.clone())
+                            .try_handle(nick, message, bot_pool.clone(), tx.clone(), bot_reg.clone(), bot_event_bus.clone())
                             .await
                         {
                             bot_engine.send_response(response, nick, &tx).await;

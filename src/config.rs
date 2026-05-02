@@ -11,6 +11,7 @@ pub struct AppConfig {
     pub webhook: Option<WebhookConfig>,
     pub rate_limit: Option<RateLimitConfig>,
     pub admin_ui: Option<AdminUiConfig>,
+    pub greeting: Option<GreetingConfig>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -19,6 +20,14 @@ pub struct HubSocketConfig {
     pub socket_path: String,
     /// Shared secret for authentication
     pub secret: String,
+    /// Interval in seconds for the maintenance tick (default: 60).
+    /// Fires a MaintenanceTick event on the bus for periodic housekeeping.
+    #[serde(default = "default_maintenance_interval")]
+    pub maintenance_interval_secs: u64,
+}
+
+fn default_maintenance_interval() -> u64 {
+    60
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -67,6 +76,13 @@ pub struct AdminUiConfig {
     #[serde(default = "default_session_expiry_hours")]
     pub session_expiry_hours: u64,
     pub jwt_secret: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct GreetingConfig {
+    /// Message sent to users on connect. Supports {hub_name} placeholder.
+    /// Default: "Welcome to {hub_name}. Type !help for commands."
+    pub welcome_message: Option<String>,
 }
 
 fn default_session_expiry_hours() -> u64 {
