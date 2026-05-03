@@ -208,19 +208,10 @@ impl CommandEngine {
                 });
                 let _ = hub_tx.send(cmd.to_string()).await;
             }
-            CommandResponse::BotPm(msg) => {
+            CommandResponse::BotPm(msg) | CommandResponse::HubPm(msg) => {
                 let cmd = serde_json::json!({
-                    "type": "send_pm_as",
-                    "from": "Hub-Security",
-                    "to": nick,
-                    "message": msg,
-                });
-                let _ = hub_tx.send(cmd.to_string()).await;
-            }
-            CommandResponse::HubPm(msg) => {
-                let cmd = serde_json::json!({
-                    "type": "send_to",
-                    "nick": nick,
+                    "type": "send_chat_as",
+                    "nick": system_nick,
                     "message": msg,
                 });
                 let _ = hub_tx.send(cmd.to_string()).await;
