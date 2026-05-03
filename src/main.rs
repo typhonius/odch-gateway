@@ -212,8 +212,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let state = hub_state.clone();
         let hub_tx = app_state.admin_tx.as_ref().clone();
         let hub_db = app_state.db_pool.clone();
+        let hub_bot_reg = bot_registry.clone();
         tokio::spawn(async move {
-            hub::socket::run(hub_config, bus, state, admin_rx, hub_tx, hub_db).await;
+            hub::socket::run(hub_config, bus, state, admin_rx, hub_tx, hub_db, hub_bot_reg).await;
         });
     }
 

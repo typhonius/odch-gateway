@@ -33,13 +33,14 @@ pub async fn run(
     mut cmd_rx: mpsc::Receiver<String>,
     hub_tx: mpsc::Sender<String>,
     db_pool: Option<DbPool>,
+    bot_registry: std::sync::Arc<crate::state::BotRegistry>,
 ) {
     let mut delay = DEFAULT_RECONNECT_DELAY;
 
     loop {
         info!("Hub socket connecting to {}...", config.socket_path);
 
-        match connect_and_run(&config, &event_bus, &hub_state, &mut cmd_rx, &hub_tx, &db_pool)
+        match connect_and_run(&config, &event_bus, &hub_state, &mut cmd_rx, &hub_tx, &db_pool, &bot_registry)
             .await
         {
             Ok(()) => {
@@ -71,6 +72,7 @@ async fn connect_and_run(
     cmd_rx: &mut mpsc::Receiver<String>,
     hub_tx: &mpsc::Sender<String>,
     db_pool: &Option<DbPool>,
+    bot_registry: &std::sync::Arc<crate::state::BotRegistry>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut stream = UnixStream::connect(&config.socket_path).await?;
     info!("Hub socket connected to {}", config.socket_path);
@@ -139,7 +141,7 @@ async fn connect_and_run(
 
                             let json_bytes = &partial[4..4 + msg_len];
                             if let Ok(json_str) = std::str::from_utf8(json_bytes) {
-                                handle_event(json_str, event_bus, hub_state, hub_tx, db_pool).await;
+                                handle_event(json_str, event_bus, hub_state, hub_tx, db_pool, bot_registry).await;
                             }
 
                             partial.drain(..4 + msg_len);
@@ -195,6 +197,7 @@ async fn handle_event(
     hub_state: &Arc<HubState>,
     hub_tx: &mpsc::Sender<String>,
     db_pool: &Option<DbPool>,
+    bot_registry: &std::sync::Arc<crate::state::BotRegistry>,
 ) {
     let value: serde_json::Value = match serde_json::from_str(json_str) {
         Ok(v) => v,
@@ -357,6 +360,32 @@ async fn handle_event(
         "validate_nick" => {
             let nick = value.get("nick").and_then(|v| v.as_str()).unwrap_or("");
             if nick.is_empty() { return; }
+
+            // Reject nicks that belong to registered bots or virtual users
+            {
+                let bots = bot_registry.bots.read().await;
+                if bots.contains_key(nick) {
+                    let cmd = serde_json::json!({
+                        "type": "reject_user",
+                        "nick": nick,
+                        "reason": "That nick is reserved for a bot.",
+                    });
+                    let _ = hub_tx.send(cmd.to_string()).await;
+                    return;
+                }
+            }
+
+            // Also reject "Sentinel" (built-in command bot) and OPChat
+            let nick_lower = nick.to_lowercase();
+            if nick_lower == "sentinel" || nick_lower == "opchat" {
+                let cmd = serde_json::json!({
+                    "type": "reject_user",
+                    "nick": nick,
+                    "reason": "That nick is reserved.",
+                });
+                let _ = hub_tx.send(cmd.to_string()).await;
+                return;
+            }
 
             // Check if user is registered in DB
             let is_registered = if let Some(pool) = db_pool {
