@@ -290,14 +290,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         ..
                     }) => {
                         let tx: tokio::sync::mpsc::Sender<String> = (*bot_tx).clone();
-                        if message.starts_with('!') {
-                            tracing::info!("Bot processor: command from {}: {}", nick, message);
-                        }
                         if let Some(response) = bot_engine
                             .try_handle(nick, message, bot_pool.clone(), tx.clone(), bot_reg.clone(), bot_event_bus.clone())
                             .await
                         {
-                            tracing::info!("Bot processor: sending response for {}", message);
                             bot_engine.send_response(response, nick, &tx).await;
                         }
                     }

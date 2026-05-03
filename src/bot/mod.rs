@@ -189,14 +189,9 @@ impl CommandEngine {
         nick: &str,
         hub_tx: &mpsc::Sender<String>,
     ) {
-        // Use the hub name as the system identity for chat responses
-        let hub_name = self.hub_state.hub_name.read().await;
-        let system_nick = if hub_name.is_empty() {
-            "Hub".to_string()
-        } else {
-            hub_name.clone()
-        };
-        drop(hub_name);
+        // Use "Hub-Security" as the system identity — hub name may contain
+        // spaces which break NMDC's <nick> message| format.
+        let system_nick = "Hub-Security".to_string();
 
         match response {
             CommandResponse::ChatAll(msg) => {
