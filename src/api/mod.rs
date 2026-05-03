@@ -112,11 +112,6 @@ pub fn build_router(state: AppState) -> Router {
         .route("/users/:nick", get(bot::get_user))
         .route("/users/:nick/connect", post(bot::user_connect))
         .route("/users/:nick/disconnect", post(bot::user_disconnect))
-        // Quotes
-        .route("/quotes", post(bot::create_quote))
-        .route("/quotes", get(bot::list_quotes))
-        .route("/quotes/random", get(bot::random_quote))
-        .route("/quotes/:id", delete(bot::delete_quote))
         // Watches
         .route("/watches", post(bot::create_watch))
         .route("/watches/:nick", get(bot::get_watchers))

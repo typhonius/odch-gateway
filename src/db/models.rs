@@ -59,16 +59,6 @@ pub struct TellRecord {
     pub delivered_at: Option<DateTime<Utc>>,
 }
 
-/// A quote from the `quotes` table.
-#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
-pub struct QuoteRecord {
-    pub id: i32,
-    pub nick: String,
-    pub quote_text: String,
-    pub added_by: String,
-    pub created_at: Option<DateTime<Utc>>,
-}
-
 /// A watch entry from the `watches` table.
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct WatchRecord {
