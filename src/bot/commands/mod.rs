@@ -350,9 +350,15 @@ async fn info(ctx: CommandContext) -> CommandResponse {
                 .last_seen
                 .map(|t| t.format("%Y-%m-%d %H:%M").to_string())
                 .unwrap_or_else(|| "unknown".to_string());
+            let level = match user.permission {
+                3 => "Admin",
+                2 => "OP",
+                1 => "Registered",
+                _ => "Regular",
+            };
             CommandResponse::ChatSingle(format!(
-                "User: {} | Share: {:.1} GB | First seen: {} | Last seen: {} | Email: {}",
-                user.nick, share_gb, first, last, user.email
+                "User: {} | Level: {} | Share: {:.1} GB | First seen: {} | Last seen: {}",
+                user.nick, level, share_gb, first, last
             ))
         }
         Ok(None) => CommandResponse::ChatSingle(format!("User '{}' not found", nick)),
