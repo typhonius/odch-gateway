@@ -597,10 +597,11 @@ pub async fn register_bot(
     // Spawn event forwarder if bot subscribes to hub events
     if has_event_subs {
         let bot_nick = body.nick.clone();
+        let bot_token = token.clone();
         let bus = state.event_bus.clone();
         let registry = state.bot_registry.clone();
         tokio::spawn(async move {
-            hub_event_forwarder(bus, registry, bot_nick).await;
+            hub_event_forwarder(bus, registry, bot_nick, bot_token).await;
         });
     }
 
@@ -870,10 +871,13 @@ fn hub_event_type_tag(event: &crate::event::HubEvent) -> &'static str {
 /// Forwards matching HubEvents from the main event bus into a bot's BotEvent channel.
 /// Only events the bot subscribed to at registration are forwarded.
 /// Runs until the bot is unregistered (removed from registry).
+/// Forwards hub events to a bot's broadcast channel.
+/// Exits if the bot is unregistered or re-registered (token changes).
 async fn hub_event_forwarder(
     event_bus: std::sync::Arc<crate::bus::EventBus>,
     registry: std::sync::Arc<crate::state::BotRegistry>,
     bot_nick: String,
+    registration_token: String,
 ) {
     let mut rx = event_bus.subscribe();
     tracing::info!("Event forwarder started for bot '{}'", bot_nick);
@@ -883,10 +887,18 @@ async fn hub_event_forwarder(
             Ok(event) => {
                 let tag = hub_event_type_tag(&event);
 
-                // Check if bot is still registered and subscribed to this event type
                 let bots = registry.bots.read().await;
                 let bot = match bots.get(&bot_nick) {
-                    Some(b) => b,
+                    Some(b) if b.token == registration_token => b,
+                    Some(_) => {
+                        // Bot re-registered with a new token — a new forwarder
+                        // is running for the new registration. Exit this one.
+                        tracing::info!(
+                            "Bot '{}' re-registered, stopping old event forwarder",
+                            bot_nick
+                        );
+                        break;
+                    }
                     None => {
                         tracing::info!(
                             "Bot '{}' unregistered, stopping event forwarder",
