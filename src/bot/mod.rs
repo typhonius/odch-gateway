@@ -204,9 +204,8 @@ impl CommandEngine {
             }
             CommandResponse::ChatSingle(msg) => {
                 let cmd = serde_json::json!({
-                    "type": "send_to_as",
+                    "type": "send_chat_as",
                     "nick": system_nick,
-                    "to": nick,
                     "message": msg,
                 });
                 let _ = hub_tx.send(cmd.to_string()).await;

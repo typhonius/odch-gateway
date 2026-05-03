@@ -290,11 +290,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         ..
                     }) => {
                         let tx: tokio::sync::mpsc::Sender<String> = (*bot_tx).clone();
-                        if let Some(response) = bot_engine
+                        match bot_engine
                             .try_handle(nick, message, bot_pool.clone(), tx.clone(), bot_reg.clone(), bot_event_bus.clone())
                             .await
                         {
-                            bot_engine.send_response(response, nick, &tx).await;
+                            Some(response) => {
+                                tracing::info!("Command '{}' from {} → responding", message, nick);
+                                bot_engine.send_response(response, nick, &tx).await;
+                            }
+                            None => {
+                                if message.starts_with('!') {
+                                    tracing::warn!("Command '{}' from {} → no handler", message, nick);
+                                }
+                            }
                         }
                     }
                     Ok(crate::event::HubEvent::PrivateMessage {
