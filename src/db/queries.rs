@@ -47,6 +47,18 @@ pub async fn upsert_user(
     Ok(rec)
 }
 
+pub async fn list_registered_users(pool: &PgPool) -> Result<Vec<UserRecord>, AppError> {
+    let rows = sqlx::query_as::<_, UserRecord>(
+        "SELECT id, nick, email, permission, share_size, description, speed, \
+                first_seen, last_seen, created_at \
+         FROM users WHERE password_hash IS NOT NULL AND permission > 0 \
+         ORDER BY nick",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
 pub async fn update_last_seen(pool: &PgPool, nick: &str) -> Result<(), AppError> {
     sqlx::query("UPDATE users SET last_seen = NOW() WHERE nick = $1")
         .bind(nick)
@@ -228,6 +240,17 @@ pub async fn check_ban(pool: &PgPool, nick: &str) -> Result<Option<BanRecord>, A
     Ok(ban)
 }
 
+pub async fn list_bans(pool: &PgPool) -> Result<Vec<BanRecord>, AppError> {
+    let rows = sqlx::query_as::<_, BanRecord>(
+        "SELECT id, nick, ip, reason, banned_by, created_at, expires_at \
+         FROM bans WHERE (expires_at IS NULL OR expires_at > NOW()) \
+         ORDER BY created_at DESC",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
 pub async fn delete_ban(pool: &PgPool, id: i32) -> Result<bool, AppError> {
     let result = sqlx::query("DELETE FROM bans WHERE id = $1")
         .bind(id)
@@ -295,6 +318,40 @@ pub async fn create_quote(
     .fetch_one(pool)
     .await?;
     Ok(id)
+}
+
+pub async fn list_quotes(
+    pool: &PgPool,
+    nick: Option<&str>,
+    limit: i64,
+) -> Result<Vec<QuoteRecord>, AppError> {
+    let rows = if let Some(nick) = nick {
+        sqlx::query_as::<_, QuoteRecord>(
+            "SELECT id, nick, quote_text, added_by, created_at \
+             FROM quotes WHERE nick = $1 ORDER BY created_at DESC LIMIT $2",
+        )
+        .bind(nick)
+        .bind(limit)
+        .fetch_all(pool)
+        .await?
+    } else {
+        sqlx::query_as::<_, QuoteRecord>(
+            "SELECT id, nick, quote_text, added_by, created_at \
+             FROM quotes ORDER BY created_at DESC LIMIT $1",
+        )
+        .bind(limit)
+        .fetch_all(pool)
+        .await?
+    };
+    Ok(rows)
+}
+
+pub async fn delete_quote(pool: &PgPool, id: i32) -> Result<bool, AppError> {
+    let result = sqlx::query("DELETE FROM quotes WHERE id = $1")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected() > 0)
 }
 
 pub async fn random_quote(
@@ -418,6 +475,17 @@ pub async fn check_gag(pool: &PgPool, nick: &str) -> Result<Option<GagRecord>, A
     .fetch_optional(pool)
     .await?;
     Ok(gag)
+}
+
+pub async fn list_gags(pool: &PgPool) -> Result<Vec<GagRecord>, AppError> {
+    let rows = sqlx::query_as::<_, GagRecord>(
+        "SELECT id, nick, reason, gagged_by, created_at, expires_at \
+         FROM gags WHERE (expires_at IS NULL OR expires_at > NOW()) \
+         ORDER BY created_at DESC",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
 }
 
 pub async fn delete_gag(pool: &PgPool, id: i32) -> Result<bool, AppError> {

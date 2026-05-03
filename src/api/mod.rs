@@ -60,6 +60,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/webhooks", post(webhooks::create_webhook))
         .route("/webhooks/:id", put(webhooks::update_webhook))
         .route("/webhooks/:id", delete(webhooks::delete_webhook))
+        .route("/hub/topic", put(moderation::set_topic))
         .layer(middleware::from_fn_with_state(
             limiter,
             rate_limit::rate_limit_middleware,
@@ -70,10 +71,15 @@ pub fn build_router(state: AppState) -> Router {
         // Hub endpoints
         .route("/hub/info", get(hub::get_hub_info))
         .route("/hub/stats", get(hub::get_hub_stats))
+        .route("/hub/topic", get(moderation::get_topic))
         // User endpoints
         .route("/users", get(users::list_users))
         .route("/users/:nick", get(users::get_user))
         .route("/users/:nick/history", get(users::get_user_history))
+        .route("/users/registered", get(moderation::list_registered_users))
+        // Moderation lists
+        .route("/bans", get(moderation::list_bans))
+        .route("/gags", get(moderation::list_gags))
         // Chat endpoints
         .route("/chat/history", get(chat::get_chat_history))
         // Command endpoints
@@ -107,7 +113,9 @@ pub fn build_router(state: AppState) -> Router {
         .route("/users/:nick/disconnect", post(bot::user_disconnect))
         // Quotes
         .route("/quotes", post(bot::create_quote))
+        .route("/quotes", get(bot::list_quotes))
         .route("/quotes/random", get(bot::random_quote))
+        .route("/quotes/:id", delete(bot::delete_quote))
         // Watches
         .route("/watches", post(bot::create_watch))
         .route("/watches/:nick", get(bot::get_watchers))

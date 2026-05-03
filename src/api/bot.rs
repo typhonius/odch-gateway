@@ -244,6 +244,23 @@ pub async fn create_quote(
 #[derive(Deserialize)]
 pub struct QuoteQuery {
     pub nick: Option<String>,
+    pub limit: Option<i64>,
+}
+
+pub async fn list_quotes(
+    State(state): State<AppState>,
+    Query(params): Query<QuoteQuery>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("No database".into()))?;
+    let limit = params.limit.unwrap_or(100).clamp(1, 1000);
+    let quotes = queries::list_quotes(pool.inner(), params.nick.as_deref(), limit).await?;
+    Ok(Json(serde_json::json!({
+        "quotes": quotes,
+        "count": quotes.len(),
+    })))
 }
 
 pub async fn random_quote(
@@ -256,6 +273,18 @@ pub async fn random_quote(
         .ok_or_else(|| AppError::Internal("No database".into()))?;
     let quote = queries::random_quote(pool.inner(), params.nick.as_deref()).await?;
     Ok(Json(serde_json::json!({"quote": quote})))
+}
+
+pub async fn delete_quote(
+    State(state): State<AppState>,
+    Path(id): Path<i32>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("No database".into()))?;
+    let deleted = queries::delete_quote(pool.inner(), id).await?;
+    Ok(Json(serde_json::json!({"deleted": deleted})))
 }
 
 // ---------------------------------------------------------------------------

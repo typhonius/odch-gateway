@@ -37,12 +37,18 @@ pub struct BanRequest {
     pub reason: String,
     #[serde(default)]
     pub ip: Option<String>,
+    /// Ban duration in seconds. Omit for permanent.
+    #[serde(default)]
+    pub duration_secs: Option<i64>,
 }
 
 #[derive(Deserialize)]
 pub struct GagRequest {
     #[serde(default)]
     pub reason: String,
+    /// Gag duration in seconds. Omit for permanent.
+    #[serde(default)]
+    pub duration_secs: Option<i64>,
 }
 
 /// POST /api/users/:nick/kick
@@ -85,7 +91,8 @@ pub async fn ban_user(
 
     let ban_nick = if body.ip.is_some() { None } else { Some(nick.as_str()) };
     let ban_ip = body.ip.as_deref();
-    queries::create_ban(pool.inner(), ban_nick, ban_ip, &body.reason, "api", None).await?;
+    let expires_at = body.duration_secs.map(|s| chrono::Utc::now() + chrono::Duration::seconds(s));
+    queries::create_ban(pool.inner(), ban_nick, ban_ip, &body.reason, "api", expires_at).await?;
 
     // Kick the user if they're online (NMDC protocol operation)
     if state.hub_state.users.read().await.contains_key(&nick) {
@@ -152,7 +159,8 @@ pub async fn gag_user(
         .as_ref()
         .ok_or_else(|| AppError::Internal("Database not configured".into()))?;
 
-    queries::create_gag(pool.inner(), &nick, &body.reason, "api", None).await?;
+    let expires_at = body.duration_secs.map(|s| chrono::Utc::now() + chrono::Duration::seconds(s));
+    queries::create_gag(pool.inner(), &nick, &body.reason, "api", expires_at).await?;
 
     state.event_bus.publish(HubEvent::Gag {
         nick: nick.clone(),
@@ -282,5 +290,89 @@ pub async fn unregister_user(
     Ok(Json(serde_json::json!({
         "status": "unregistered",
         "nick": nick,
+    })))
+}
+
+/// GET /api/v1/bans
+pub async fn list_bans(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("Database not configured".into()))?;
+    let bans = queries::list_bans(pool.inner()).await?;
+    Ok(Json(serde_json::json!({
+        "bans": bans,
+        "count": bans.len(),
+    })))
+}
+
+/// GET /api/v1/gags
+pub async fn list_gags(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("Database not configured".into()))?;
+    let gags = queries::list_gags(pool.inner()).await?;
+    Ok(Json(serde_json::json!({
+        "gags": gags,
+        "count": gags.len(),
+    })))
+}
+
+/// GET /api/v1/users/registered
+pub async fn list_registered_users(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("Database not configured".into()))?;
+    let users = queries::list_registered_users(pool.inner()).await?;
+    Ok(Json(serde_json::json!({
+        "users": users,
+        "count": users.len(),
+    })))
+}
+
+/// GET /api/v1/hub/topic
+pub async fn get_topic(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let topic = state.hub_state.topic.read().await.clone();
+    Ok(Json(serde_json::json!({ "topic": topic })))
+}
+
+#[derive(Deserialize)]
+pub struct SetTopicRequest {
+    pub topic: String,
+}
+
+/// PUT /api/v1/hub/topic
+pub async fn set_topic(
+    State(state): State<AppState>,
+    Json(body): Json<SetTopicRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    // Update in-memory state
+    *state.hub_state.topic.write().await = body.topic.clone();
+
+    // Persist to DB if available
+    if let Some(pool) = state.db_pool.as_ref() {
+        let _ = queries::set_setting(pool.inner(), "topic", &body.topic).await;
+    }
+
+    // Broadcast to hub
+    send_hub_command(
+        &state,
+        serde_json::json!({"type": "set_topic", "topic": body.topic}),
+    )
+    .await?;
+
+    Ok(Json(serde_json::json!({
+        "status": "updated",
+        "topic": body.topic,
     })))
 }

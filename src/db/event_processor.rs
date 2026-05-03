@@ -156,6 +156,13 @@ async fn process_event(
                     tracing::info!("Closed {} orphaned session(s)", n);
                 }
             }
+
+            // Record stats snapshot
+            let user_count = hub_state.users.read().await.len() as i32;
+            let total_share = *hub_state.total_share.read().await as i64;
+            if let Err(e) = queries::insert_stats_snapshot(db, user_count, total_share).await {
+                tracing::warn!("Failed to insert stats snapshot: {}", e);
+            }
         }
 
         _ => {}
