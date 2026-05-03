@@ -189,9 +189,7 @@ impl CommandEngine {
         nick: &str,
         hub_tx: &mpsc::Sender<String>,
     ) {
-        // Use "Hub-Security" as the system identity — hub name may contain
-        // spaces which break NMDC's <nick> message| format.
-        let system_nick = "Hub-Security".to_string();
+        let system_nick = "Sentinel".to_string();
 
         match response {
             CommandResponse::ChatAll(msg) => {
