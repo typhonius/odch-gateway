@@ -131,10 +131,9 @@ pub fn build_router(state: AppState) -> Router {
         // Bot registration
         .route("/register", post(bot::register_bot))
         .route("/register", delete(bot::unregister_bot))
-        // Bot command polling and messaging
+        // Bot messaging and event stream
         .route("/chat", post(bot::bot_chat))
         .route("/pm", post(bot::bot_pm))
-        .route("/commands/pending", get(bot::poll_commands))
         .route("/events", get(bot::bot_events));
     // TODO: Add X-Bot-Key auth middleware when [bot] config section is added.
     // For now bot routes use the same API key auth as external endpoints.

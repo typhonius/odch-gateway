@@ -1,8 +1,8 @@
 //! Bot API endpoints — external bot platform.
 //!
 //! Bots register via POST /api/v1/bot/register, which creates a virtual user
-//! on the hub. Bots poll for commands via GET /api/v1/bot/commands/pending
-//! and respond via POST /api/v1/bot/chat or POST /api/v1/bot/pm.
+//! on the hub. Events are delivered via SSE on GET /api/v1/bot/events.
+//! Bots respond via POST /api/v1/bot/chat or POST /api/v1/bot/pm.
 //!
 //! All endpoints under /api/v1/bot/ require X-API-Key authentication.
 
@@ -735,7 +735,7 @@ pub async fn unregister_bot(
 }
 
 // ---------------------------------------------------------------------------
-// Bot command polling and messaging
+// Bot messaging and event stream
 // ---------------------------------------------------------------------------
 
 #[derive(Deserialize)]
@@ -787,40 +787,6 @@ fn flatten_bot_event(event: &crate::state::BotEvent) -> (&str, String) {
             (tag, data.to_string())
         }
     }
-}
-
-pub async fn poll_commands(
-    State(state): State<AppState>,
-    headers: axum::http::HeaderMap,
-    Query(params): Query<PollQuery>,
-) -> Result<Json<serde_json::Value>, AppError> {
-    let token = headers
-        .get("X-Bot-Token")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    validate_bot_token(&state, &params.nick, token).await?;
-
-    let bots = state.bot_registry.bots.read().await;
-    let bot = bots.get(&params.nick).ok_or_else(|| {
-        AppError::NotFound(format!("Bot '{}' not registered", params.nick))
-    })?;
-    let mut rx = bot.event_tx.subscribe();
-    drop(bots);
-
-    let mut events = Vec::new();
-    while let Ok(event) = rx.try_recv() {
-        let (event_type, data) = flatten_bot_event(&event);
-        let data_value: serde_json::Value =
-            serde_json::from_str(&data).unwrap_or(serde_json::Value::Null);
-        events.push(serde_json::json!({
-            "event_type": event_type,
-            "data": data_value,
-        }));
-    }
-    Ok(Json(serde_json::json!({
-        "events": events,
-        "count": events.len(),
-    })))
 }
 
 pub async fn bot_events(
