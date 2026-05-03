@@ -93,7 +93,7 @@ async fn help(ctx: CommandContext) -> CommandResponse {
     }
 
     // General help: formatted list
-    let mut msg = String::from("=== Hub Commands ===\n");
+    let mut msg = String::from("\n=== Hub Commands ===\n");
     msg.push_str("  !help [cmd]       Show help\n");
     msg.push_str("  !tell <nick> msg  Leave a message\n");
     msg.push_str("  !seen <nick>      Last seen\n");
@@ -252,18 +252,36 @@ async fn quote(ctx: CommandContext) -> CommandResponse {
     let nick_filter = if ctx.args.trim().is_empty() {
         None
     } else {
-        Some(ctx.args.trim())
+        Some(ctx.args.trim().to_string())
     };
 
-    match queries::random_quote(&ctx.db, nick_filter).await {
-        Ok(Some(q)) => {
-            let ts = q
+    // Pull a random message from chat history
+    let query = if let Some(ref nick) = nick_filter {
+        sqlx::query_as::<_, crate::db::models::ChatMessage>(
+            "SELECT id, nick, message, created_at \
+             FROM chat_messages WHERE nick = $1 ORDER BY RANDOM() LIMIT 1",
+        )
+        .bind(nick)
+        .fetch_optional(&ctx.db)
+        .await
+    } else {
+        sqlx::query_as::<_, crate::db::models::ChatMessage>(
+            "SELECT id, nick, message, created_at \
+             FROM chat_messages ORDER BY RANDOM() LIMIT 1",
+        )
+        .fetch_optional(&ctx.db)
+        .await
+    };
+
+    match query {
+        Ok(Some(msg)) => {
+            let ts = msg
                 .created_at
-                .map(|t| t.format("%Y-%m-%d").to_string())
+                .map(|t| t.format("%Y-%m-%d %H:%M").to_string())
                 .unwrap_or_default();
-            CommandResponse::ChatAll(format!("[{}] <{}> {}", ts, q.nick, q.quote_text))
+            CommandResponse::ChatAll(format!("[{}] <{}> {}", ts, msg.nick, msg.message))
         }
-        Ok(None) => CommandResponse::ChatAll("No quotes found.".to_string()),
+        Ok(None) => CommandResponse::ChatAll("No chat history found.".to_string()),
         Err(e) => CommandResponse::ChatAll(format!("Error: {}", e)),
     }
 }
