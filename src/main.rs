@@ -315,6 +315,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         }
                     }
+                    Ok(crate::event::HubEvent::GatewayStatus { connected: true, .. }) => {
+                        // Hub reconnected — re-add all registered bot virtual users
+                        let bots = bot_reg.bots.read().await;
+                        for bot in bots.values() {
+                            let cmd = serde_json::json!({
+                                "type": "add_virtual_user",
+                                "nick": bot.nick,
+                                "description": bot.description,
+                                "email": bot.email,
+                                "tag": bot.tag,
+                                "share": 0,
+                                "op": false,
+                            });
+                            let _ = bot_tx.send(cmd.to_string()).await;
+                            tracing::info!("Re-registered bot '{}' after hub reconnect", bot.nick);
+                        }
+                    }
                     Ok(_) => {}
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                         tracing::warn!("Bot command processor lagged by {} events", n);

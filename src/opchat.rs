@@ -72,6 +72,11 @@ pub async fn run(
                     let _ = hub_tx.send(cmd.to_string()).await;
                 }
             }
+            Ok(HubEvent::GatewayStatus { connected: true, .. }) => {
+                // Hub reconnected — re-register virtual user
+                let _ = hub_tx.send(register_cmd.to_string()).await;
+                tracing::info!("OPChat re-registered after hub reconnect");
+            }
             Ok(_) => {}
             Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                 tracing::warn!("OPChat lagged by {} events", n);
