@@ -303,14 +303,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         ref message,
                         ..
                     }) => {
-                        // Route PM to the bot that owns the target nick
+                        // Route PM to the bot that owns the target nick (if subscribed)
                         let bots = bot_reg.bots.read().await;
                         if let Some(bot) = bots.get(to) {
-                            let _ = bot.event_tx.send(crate::state::BotEvent::PrivateMessage {
-                                from_nick: from.clone(),
-                                message: message.clone(),
-                                timestamp: chrono::Utc::now(),
-                            });
+                            if bot.subscribed_events.contains("pm") {
+                                let _ = bot.event_tx.send(crate::state::BotEvent::PrivateMessage {
+                                    from_nick: from.clone(),
+                                    message: message.clone(),
+                                    timestamp: chrono::Utc::now(),
+                                });
+                            }
                         }
                     }
                     Ok(_) => {}

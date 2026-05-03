@@ -130,7 +130,7 @@ impl CommandEngine {
         if self.disabled.read().await.contains(&cmd_lower) {
             let bots = bot_registry.bots.read().await;
             for bot in bots.values() {
-                if bot.commands.contains(&cmd_lower) {
+                if bot.commands.contains(&cmd_lower) && bot.subscribed_events.contains("command") {
                     let _ = bot.event_tx.send(crate::state::BotEvent::Command {
                         from_nick: nick.to_string(),
                         command: cmd_lower,

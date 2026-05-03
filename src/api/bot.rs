@@ -542,11 +542,31 @@ pub struct BotRegisterRequest {
     pub tag: String,
     #[serde(default)]
     pub commands: Vec<String>,
-    /// Hub event types to receive on the SSE stream.
-    /// Valid types: chat, user_join, user_quit, user_info, kick, ban, unban, gag, ungag
+    /// Event types to subscribe to on the SSE stream.
+    /// Available: command, pm, chat, user_join, user_quit, user_info, kick, ban, unban,
+    /// gag, ungag, hub_name, op_list, gateway_status, maintenance_tick.
+    /// For command events, also register command names in the `commands` field.
     #[serde(default)]
     pub events: Vec<String>,
 }
+
+const VALID_EVENT_SUBS: &[&str] = &[
+    "command",
+    "pm",
+    "chat",
+    "user_join",
+    "user_quit",
+    "user_info",
+    "kick",
+    "ban",
+    "unban",
+    "gag",
+    "ungag",
+    "hub_name",
+    "op_list",
+    "gateway_status",
+    "maintenance_tick",
+];
 
 pub async fn register_bot(
     State(state): State<AppState>,
@@ -554,9 +574,46 @@ pub async fn register_bot(
 ) -> Result<Json<serde_json::Value>, AppError> {
     let token = uuid::Uuid::new_v4().to_string();
 
-    // Create a RegisteredBot entry in the bot registry
+    // Validate and collect warnings
+    let mut warnings: Vec<String> = Vec::new();
+
     let subscribed_events: std::collections::HashSet<String> =
         body.events.iter().map(|e| e.to_lowercase()).collect();
+
+    // Warn about unrecognized event subscriptions
+    for event in &subscribed_events {
+        if !VALID_EVENT_SUBS.contains(&event.as_str()) {
+            warnings.push(format!("unknown event type: '{}'", event));
+        }
+    }
+
+    // Warn if commands registered but 'command' not subscribed
+    if !body.commands.is_empty() && !subscribed_events.contains("command") {
+        warnings.push(
+            "commands registered but 'command' not in events — bot will not receive command events"
+                .to_string(),
+        );
+    }
+
+    // Warn if 'command' subscribed but no commands registered
+    if subscribed_events.contains("command") && body.commands.is_empty() {
+        warnings.push(
+            "'command' in events but no commands registered — no commands will be routed to this bot"
+                .to_string(),
+        );
+    }
+
+    // Warn if no events subscribed at all
+    if subscribed_events.is_empty() && body.commands.is_empty() {
+        warnings.push(
+            "no events or commands registered — bot will sit silently".to_string(),
+        );
+    }
+
+    for w in &warnings {
+        tracing::warn!("Bot '{}' registration: {}", body.nick, w);
+    }
+
     let has_event_subs = !subscribed_events.is_empty();
     {
         let mut bots = state.bot_registry.bots.write().await;
@@ -613,17 +670,23 @@ pub async fn register_bot(
     notify_ops(&state, &format!("Bot '{}' registered, claiming: {:?}", body.nick, body.commands)).await;
 
     tracing::info!(
-        "Bot '{}' registered, claiming commands: {:?}",
+        "Bot '{}' registered, claiming commands: {:?}, events: {:?}",
         body.nick,
-        body.commands
+        body.commands,
+        body.events,
     );
-    Ok(Json(serde_json::json!({
+
+    let mut response = serde_json::json!({
         "status": "registered",
         "nick": body.nick,
         "token": token,
         "commands": body.commands,
         "events": body.events,
-    })))
+    });
+    if !warnings.is_empty() {
+        response["warnings"] = serde_json::json!(warnings);
+    }
+    Ok(Json(response))
 }
 
 #[derive(Deserialize)]
@@ -678,14 +741,64 @@ pub async fn unregister_bot(
 #[derive(Deserialize)]
 pub struct PollQuery {
     pub nick: String,
-    pub token: String,
+}
+
+/// Flatten a BotEvent into (event_type_name, json_data).
+/// Hub events are unwrapped so the SSE event name is the hub event type
+/// (e.g. "user_join", "kick") and the data is just the event payload.
+fn flatten_bot_event(event: &crate::state::BotEvent) -> (&str, String) {
+    match event {
+        crate::state::BotEvent::Command {
+            from_nick,
+            command,
+            args,
+            timestamp,
+        } => (
+            "command",
+            serde_json::json!({
+                "from_nick": from_nick,
+                "command": command,
+                "args": args,
+                "timestamp": timestamp,
+            })
+            .to_string(),
+        ),
+        crate::state::BotEvent::PrivateMessage {
+            from_nick,
+            message,
+            timestamp,
+        } => (
+            "pm",
+            serde_json::json!({
+                "from_nick": from_nick,
+                "message": message,
+                "timestamp": timestamp,
+            })
+            .to_string(),
+        ),
+        crate::state::BotEvent::HubEvent { event } => {
+            let tag = hub_event_type_tag(event);
+            // HubEvent serializes as {"type":"X","data":{...}} — extract just the data
+            let full = serde_json::to_value(event).unwrap_or_default();
+            let data = full
+                .get("data")
+                .cloned()
+                .unwrap_or(serde_json::Value::Object(Default::default()));
+            (tag, data.to_string())
+        }
+    }
 }
 
 pub async fn poll_commands(
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     Query(params): Query<PollQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    validate_bot_token(&state, &params.nick, &params.token).await?;
+    let token = headers
+        .get("X-Bot-Token")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    validate_bot_token(&state, &params.nick, token).await?;
 
     let bots = state.bot_registry.bots.read().await;
     let bot = bots.get(&params.nick).ok_or_else(|| {
@@ -696,7 +809,13 @@ pub async fn poll_commands(
 
     let mut events = Vec::new();
     while let Ok(event) = rx.try_recv() {
-        events.push(event);
+        let (event_type, data) = flatten_bot_event(&event);
+        let data_value: serde_json::Value =
+            serde_json::from_str(&data).unwrap_or(serde_json::Value::Null);
+        events.push(serde_json::json!({
+            "event_type": event_type,
+            "data": data_value,
+        }));
     }
     Ok(Json(serde_json::json!({
         "events": events,
@@ -706,9 +825,14 @@ pub async fn poll_commands(
 
 pub async fn bot_events(
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     Query(params): Query<PollQuery>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, AppError> {
-    validate_bot_token(&state, &params.nick, &params.token).await?;
+    let token = headers
+        .get("X-Bot-Token")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    validate_bot_token(&state, &params.nick, token).await?;
 
     let bots = state.bot_registry.bots.read().await;
     let bot = bots
@@ -721,12 +845,7 @@ pub async fn bot_events(
         loop {
             match rx.recv().await {
                 Ok(event) => {
-                    let event_name = match &event {
-                        crate::state::BotEvent::Command { .. } => "command",
-                        crate::state::BotEvent::PrivateMessage { .. } => "pm",
-                        crate::state::BotEvent::HubEvent { .. } => "hub_event",
-                    };
-                    let json = serde_json::to_string(&event).unwrap_or_default();
+                    let (event_name, json) = flatten_bot_event(&event);
                     yield Ok(Event::default().event(event_name).data(json));
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
@@ -794,7 +913,7 @@ pub async fn bot_pm(
     Ok(Json(serde_json::json!({"status": "sent"})))
 }
 
-/// Map a HubEvent to its type tag for filtering against bot subscriptions.
+/// Map a HubEvent to its type tag for SSE event naming and subscription filtering.
 fn hub_event_type_tag(event: &crate::event::HubEvent) -> &'static str {
     use crate::event::HubEvent;
     match event {
@@ -816,6 +935,7 @@ fn hub_event_type_tag(event: &crate::event::HubEvent) -> &'static str {
 }
 
 /// Forwards matching HubEvents from the main event bus into a bot's BotEvent channel.
+/// Only events the bot subscribed to at registration are forwarded.
 /// Runs until the bot is unregistered (removed from registry).
 async fn hub_event_forwarder(
     event_bus: std::sync::Arc<crate::bus::EventBus>,
