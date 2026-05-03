@@ -877,6 +877,14 @@ pub async fn bot_chat(
         .send(cmd.to_string())
         .await
         .map_err(|e| AppError::Internal(format!("Failed to send: {}", e)))?;
+
+    // Publish to event bus (hub no longer echoes send_chat_as back)
+    state.event_bus.publish(crate::event::HubEvent::Chat {
+        nick: body.nick.clone(),
+        message: body.message.clone(),
+        timestamp: chrono::Utc::now(),
+    });
+
     Ok(Json(serde_json::json!({"status": "sent"})))
 }
 
