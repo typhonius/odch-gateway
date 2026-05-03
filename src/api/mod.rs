@@ -60,6 +60,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/webhooks", post(webhooks::create_webhook))
         .route("/webhooks/:id", put(webhooks::update_webhook))
         .route("/webhooks/:id", delete(webhooks::delete_webhook))
+        .route("/users/:nick/password", put(moderation::set_password))
         .route("/hub/topic", put(moderation::set_topic))
         .layer(middleware::from_fn_with_state(
             limiter,

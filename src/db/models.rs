@@ -11,6 +11,8 @@ pub struct UserRecord {
     pub share_size: i64,
     pub description: String,
     pub speed: String,
+    #[serde(skip_serializing)]
+    pub password_hash: Option<String>,
     pub first_seen: Option<DateTime<Utc>>,
     pub last_seen: Option<DateTime<Utc>>,
     pub created_at: Option<DateTime<Utc>>,

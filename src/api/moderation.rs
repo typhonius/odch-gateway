@@ -376,3 +376,53 @@ pub async fn set_topic(
         "topic": body.topic,
     })))
 }
+
+#[derive(Deserialize)]
+pub struct SetPasswordRequest {
+    pub password: String,
+    #[serde(default = "default_password_permission")]
+    pub permission: Option<i16>,
+}
+
+fn default_password_permission() -> Option<i16> {
+    None
+}
+
+/// PUT /api/v1/users/:nick/password
+pub async fn set_password(
+    State(state): State<AppState>,
+    Path(nick): Path<String>,
+    Json(body): Json<SetPasswordRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    validate_nick(&nick)?;
+
+    if body.password.is_empty() {
+        return Err(AppError::BadRequest("Password cannot be empty".to_string()));
+    }
+
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("Database not configured".into()))?;
+
+    let password_hash = bcrypt::hash(&body.password, 10)
+        .map_err(|e| AppError::Internal(format!("Failed to hash password: {}", e)))?;
+
+    // Upsert: create user if they don't exist, update password if they do
+    let permission = body.permission.unwrap_or(1); // default to registered
+    sqlx::query(
+        "INSERT INTO users (nick, password_hash, permission) VALUES ($1, $2, $3) \
+         ON CONFLICT (nick) DO UPDATE SET password_hash = EXCLUDED.password_hash, \
+         permission = CASE WHEN $3 > 0 THEN $3 ELSE users.permission END",
+    )
+    .bind(&nick)
+    .bind(&password_hash)
+    .bind(permission)
+    .execute(pool.inner())
+    .await?;
+
+    Ok(Json(serde_json::json!({
+        "status": "password_set",
+        "nick": nick,
+    })))
+}

@@ -354,6 +354,92 @@ async fn handle_event(
             });
         }
 
+        "validate_nick" => {
+            let nick = value.get("nick").and_then(|v| v.as_str()).unwrap_or("");
+            if nick.is_empty() { return; }
+
+            // Check if user is registered in DB
+            let is_registered = if let Some(pool) = db_pool {
+                match queries::get_user(pool.inner(), nick).await {
+                    Ok(Some(user)) if user.password_hash.is_some() && user.permission > 0 => true,
+                    _ => false,
+                }
+            } else {
+                false
+            };
+
+            if is_registered {
+                // Tell hub to challenge for password
+                let cmd = serde_json::json!({
+                    "type": "send_getpass",
+                    "nick": nick,
+                });
+                let _ = hub_tx.send(cmd.to_string()).await;
+            } else {
+                // Not registered — let them in as regular user
+                let cmd = serde_json::json!({
+                    "type": "login_user",
+                    "nick": nick,
+                    "permission": 0,
+                });
+                let _ = hub_tx.send(cmd.to_string()).await;
+            }
+        }
+
+        "check_password" => {
+            let nick = value.get("nick").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let password = value.get("password").and_then(|v| v.as_str()).unwrap_or("");
+            if nick.is_empty() || password.is_empty() {
+                let cmd = serde_json::json!({
+                    "type": "reject_user",
+                    "nick": nick,
+                    "reason": "Invalid credentials",
+                });
+                let _ = hub_tx.send(cmd.to_string()).await;
+                return;
+            }
+
+            let result = if let Some(pool) = db_pool {
+                match queries::get_user_with_password(pool.inner(), &nick).await {
+                    Ok(Some((hash, permission))) => {
+                        // bcrypt verify (blocking — use spawn_blocking)
+                        let pw = password.to_string();
+                        let hash_clone = hash.clone();
+                        match tokio::task::spawn_blocking(move || {
+                            bcrypt::verify(pw, &hash_clone)
+                        }).await {
+                            Ok(Ok(true)) => Some(permission),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                }
+            } else {
+                None
+            };
+
+            match result {
+                Some(permission) => {
+                    let cmd = serde_json::json!({
+                        "type": "login_user",
+                        "nick": nick,
+                        "permission": permission,
+                    });
+                    let _ = hub_tx.send(cmd.to_string()).await;
+                    tracing::info!("User '{}' authenticated (permission={})", nick, permission);
+                }
+                None => {
+                    let cmd = serde_json::json!({
+                        "type": "reject_user",
+                        "nick": nick,
+                        "reason": "Incorrect password",
+                    });
+                    let _ = hub_tx.send(cmd.to_string()).await;
+                    tracing::warn!("Failed password attempt for '{}'", nick);
+                }
+            }
+        }
+
         "status" => {
             if let Some(name) = value.get("hub_name").and_then(|v| v.as_str()) {
                 *hub_state.hub_name.write().await = name.to_string();

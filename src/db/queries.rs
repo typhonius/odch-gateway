@@ -11,13 +11,27 @@ use crate::error::AppError;
 pub async fn get_user(pool: &PgPool, nick: &str) -> Result<Option<UserRecord>, AppError> {
     let user = sqlx::query_as::<_, UserRecord>(
         "SELECT id, nick, email, permission, share_size, description, speed, \
-                first_seen, last_seen, created_at \
+                password_hash, first_seen, last_seen, created_at \
          FROM users WHERE nick = $1",
     )
     .bind(nick)
     .fetch_optional(pool)
     .await?;
     Ok(user)
+}
+
+pub async fn get_user_with_password(
+    pool: &PgPool,
+    nick: &str,
+) -> Result<Option<(String, i16)>, AppError> {
+    let row = sqlx::query_as::<_, (String, i16)>(
+        "SELECT password_hash, permission FROM users \
+         WHERE nick = $1 AND password_hash IS NOT NULL",
+    )
+    .bind(nick)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row)
 }
 
 pub async fn upsert_user(
@@ -50,7 +64,7 @@ pub async fn upsert_user(
 pub async fn list_registered_users(pool: &PgPool) -> Result<Vec<UserRecord>, AppError> {
     let rows = sqlx::query_as::<_, UserRecord>(
         "SELECT id, nick, email, permission, share_size, description, speed, \
-                first_seen, last_seen, created_at \
+                password_hash, first_seen, last_seen, created_at \
          FROM users WHERE password_hash IS NOT NULL AND permission > 0 \
          ORDER BY nick",
     )
