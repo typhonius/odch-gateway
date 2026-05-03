@@ -202,16 +202,26 @@ impl CommandEngine {
             }
             CommandResponse::ChatSingle(msg) => {
                 let cmd = serde_json::json!({
-                    "type": "send_chat_as",
+                    "type": "send_to_as",
                     "nick": system_nick,
+                    "to": nick,
                     "message": msg,
                 });
                 let _ = hub_tx.send(cmd.to_string()).await;
             }
-            CommandResponse::BotPm(msg) | CommandResponse::HubPm(msg) => {
+            CommandResponse::BotPm(msg) => {
                 let cmd = serde_json::json!({
-                    "type": "send_chat_as",
-                    "nick": system_nick,
+                    "type": "send_pm_as",
+                    "from": system_nick,
+                    "to": nick,
+                    "message": msg,
+                });
+                let _ = hub_tx.send(cmd.to_string()).await;
+            }
+            CommandResponse::HubPm(msg) => {
+                let cmd = serde_json::json!({
+                    "type": "send_to",
+                    "nick": nick,
                     "message": msg,
                 });
                 let _ = hub_tx.send(cmd.to_string()).await;
