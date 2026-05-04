@@ -55,6 +55,28 @@ async fn process_event(
         HubEvent::Chat { nick, message, .. } => {
             queries::insert_chat(db, nick, message).await?;
             queries::upsert_user(db, nick, "", 0, "", "").await.ok();
+
+            // Deliver pending tells on chat activity (in case user was
+            // already online when the tell was created)
+            if let Ok(tells) = queries::get_pending_tells(db, nick).await {
+                for tell in &tells {
+                    let msg = format!(
+                        "Tell from {} ({}): {}",
+                        tell.from_nick,
+                        tell.created_at
+                            .map(|t| t.format("%Y-%m-%d %H:%M").to_string())
+                            .unwrap_or_default(),
+                        tell.message
+                    );
+                    let cmd = serde_json::json!({
+                        "type": "send_to",
+                        "nick": nick,
+                        "message": msg,
+                    });
+                    let _ = hub_tx.send(cmd.to_string()).await;
+                    queries::mark_tell_delivered(db, tell.id).await.ok();
+                }
+            }
         }
 
         HubEvent::UserJoin { nick, .. } => {
