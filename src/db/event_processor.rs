@@ -59,26 +59,11 @@ async fn process_event(
             queries::upsert_user(db, nick, "", 0, "", "").await.ok();
 
             // Deliver pending tells on chat activity (in case user was
-            // already online when the tell was created)
-            if let Ok(tells) = queries::get_pending_tells(db, nick).await {
-                for tell in &tells {
-                    let msg = format!(
-                        "Tell from {} ({}): {}",
-                        tell.from_nick,
-                        tell.created_at
-                            .map(|t| t.format("%Y-%m-%d %H:%M").to_string())
-                            .unwrap_or_default(),
-                        tell.message
-                    );
-                    let cmd = serde_json::json!({
-                        "type": "send_to_as",
-                        "nick": system_nick,
-                        "to": nick,
-                        "message": msg,
-                    });
-                    let _ = hub_tx.send(cmd.to_string()).await;
-                    queries::mark_tell_delivered(db, tell.id).await.ok();
-                }
+            // already online when the tell was created).
+            // Skip if the message itself is a !tell command — avoid
+            // delivering a tell that was just created in the same event.
+            if !message.trim_start().starts_with("!tell") {
+                deliver_tells(db, nick, hub_tx, system_nick).await;
             }
         }
 
@@ -95,26 +80,7 @@ async fn process_event(
             queries::open_session(db, user_id, "", false).await.ok();
 
             // Deliver pending tells
-            if let Ok(tells) = queries::get_pending_tells(db, nick).await {
-                for tell in &tells {
-                    let msg = format!(
-                        "Tell from {} ({}): {}",
-                        tell.from_nick,
-                        tell.created_at
-                            .map(|t| t.format("%Y-%m-%d %H:%M").to_string())
-                            .unwrap_or_default(),
-                        tell.message
-                    );
-                    let cmd = serde_json::json!({
-                        "type": "send_to_as",
-                        "nick": system_nick,
-                        "to": nick,
-                        "message": msg,
-                    });
-                    let _ = hub_tx.send(cmd.to_string()).await;
-                    queries::mark_tell_delivered(db, tell.id).await.ok();
-                }
-            }
+            deliver_tells(db, nick, hub_tx, system_nick).await;
 
             // Notify watchers
             if let Ok(watchers) = queries::get_watchers(db, nick).await {
@@ -197,4 +163,33 @@ async fn process_event(
     }
 
     Ok(())
+}
+
+/// Deliver pending tells to a user via PM.
+async fn deliver_tells(
+    db: &sqlx::PgPool,
+    nick: &str,
+    hub_tx: &mpsc::Sender<String>,
+    system_nick: &str,
+) {
+    if let Ok(tells) = queries::get_pending_tells(db, nick).await {
+        for tell in &tells {
+            let msg = format!(
+                "Tell from {} ({}): {}",
+                tell.from_nick,
+                tell.created_at
+                    .map(|t| t.format("%Y-%m-%d %H:%M").to_string())
+                    .unwrap_or_default(),
+                tell.message
+            );
+            let cmd = serde_json::json!({
+                "type": "send_pm_as",
+                "from": system_nick,
+                "to": nick,
+                "message": msg,
+            });
+            let _ = hub_tx.send(cmd.to_string()).await;
+            queries::mark_tell_delivered(db, tell.id).await.ok();
+        }
+    }
 }
