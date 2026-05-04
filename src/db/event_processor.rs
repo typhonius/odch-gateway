@@ -21,6 +21,7 @@ pub async fn run(
     db_pool: DbPool,
     hub_tx: mpsc::Sender<String>,
     hub_state: Arc<HubState>,
+    system_nick: String,
 ) {
     let mut rx = event_bus.subscribe();
     tracing::info!("Event processor started");
@@ -28,7 +29,7 @@ pub async fn run(
     loop {
         match rx.recv().await {
             Ok(event) => {
-                if let Err(e) = process_event(&db_pool, &event, &hub_tx, &hub_state).await {
+                if let Err(e) = process_event(&db_pool, &event, &hub_tx, &hub_state, &system_nick).await {
                     tracing::warn!("Event processor error: {}", e);
                 }
             }
@@ -48,6 +49,7 @@ async fn process_event(
     event: &HubEvent,
     hub_tx: &mpsc::Sender<String>,
     hub_state: &Arc<HubState>,
+    system_nick: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let db = pool.inner();
 
@@ -69,8 +71,9 @@ async fn process_event(
                         tell.message
                     );
                     let cmd = serde_json::json!({
-                        "type": "send_to",
-                        "nick": nick,
+                        "type": "send_to_as",
+                        "nick": system_nick,
+                        "to": nick,
                         "message": msg,
                     });
                     let _ = hub_tx.send(cmd.to_string()).await;
@@ -103,8 +106,9 @@ async fn process_event(
                         tell.message
                     );
                     let cmd = serde_json::json!({
-                        "type": "send_to",
-                        "nick": nick,
+                        "type": "send_to_as",
+                        "nick": system_nick,
+                        "to": nick,
                         "message": msg,
                     });
                     let _ = hub_tx.send(cmd.to_string()).await;
@@ -116,8 +120,9 @@ async fn process_event(
             if let Ok(watchers) = queries::get_watchers(db, nick).await {
                 for w in &watchers {
                     let cmd = serde_json::json!({
-                        "type": "send_to",
-                        "nick": w.watcher_nick,
+                        "type": "send_to_as",
+                        "nick": system_nick,
+                        "to": w.watcher_nick,
                         "message": format!("{} has logged in.", nick),
                     });
                     let _ = hub_tx.send(cmd.to_string()).await;
@@ -133,8 +138,9 @@ async fn process_event(
             if let Ok(watchers) = queries::get_watchers(db, nick).await {
                 for w in &watchers {
                     let cmd = serde_json::json!({
-                        "type": "send_to",
-                        "nick": w.watcher_nick,
+                        "type": "send_to_as",
+                        "nick": system_nick,
+                        "to": w.watcher_nick,
                         "message": format!("{} has logged out.", nick),
                     });
                     let _ = hub_tx.send(cmd.to_string()).await;

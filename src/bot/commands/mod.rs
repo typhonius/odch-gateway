@@ -134,14 +134,14 @@ async fn help(ctx: CommandContext) -> CommandResponse {
 async fn tell(ctx: CommandContext) -> CommandResponse {
     let parts: Vec<&str> = ctx.args.splitn(2, ' ').collect();
     if parts.len() < 2 {
-        return CommandResponse::BotPm("Usage: !tell <nick> <message>".to_string());
+        return CommandResponse::ChatSingle("Usage: !tell <nick> <message>".to_string());
     }
     let to_nick = parts[0];
     let message = parts[1];
 
     match queries::create_tell(&ctx.db, &ctx.nick, to_nick, message).await {
-        Ok(_) => CommandResponse::BotPm(format!("Tell saved for {}", to_nick)),
-        Err(e) => CommandResponse::BotPm(format!("Failed to save tell: {}", e)),
+        Ok(_) => CommandResponse::ChatSingle(format!("Tell saved for {}", to_nick)),
+        Err(e) => CommandResponse::ChatSingle(format!("Failed to save tell: {}", e)),
     }
 }
 
@@ -436,8 +436,9 @@ async fn kick(ctx: CommandContext) -> CommandResponse {
     // Send kick reason as PM to victim
     if !reason.is_empty() {
         let reason_pm = serde_json::json!({
-            "type": "send_to",
-            "nick": target,
+            "type": "send_to_as",
+            "nick": ctx.system_nick,
+            "to": target,
             "message": format!("You have been kicked: {}", reason),
         });
         let _ = ctx.hub_tx.send(reason_pm.to_string()).await;

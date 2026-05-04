@@ -35,11 +35,13 @@ async fn validate_bot_token(state: &AppState, nick: &str, token: &str) -> Result
 // ---------------------------------------------------------------------------
 
 async fn notify_ops(state: &AppState, message: &str) {
+    let system_nick = &state.config.server.system_nick;
     let ops = state.hub_state.ops.read().await.clone();
     for op in &ops {
         let cmd = serde_json::json!({
-            "type": "send_to",
-            "nick": op,
+            "type": "send_to_as",
+            "nick": system_nick,
+            "to": op,
             "message": message,
         });
         let _ = state.admin_tx.send(cmd.to_string()).await;

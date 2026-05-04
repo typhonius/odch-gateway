@@ -225,8 +225,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let ep_pool = pool.clone();
         let ep_tx = app_state.admin_tx.as_ref().clone();
         let ep_state = hub_state.clone();
+        let ep_sys_nick = config.server.system_nick.clone();
         tokio::spawn(async move {
-            db::event_processor::run(ep_bus, ep_pool, ep_tx, ep_state).await;
+            db::event_processor::run(ep_bus, ep_pool, ep_tx, ep_state, ep_sys_nick).await;
         });
     }
 
