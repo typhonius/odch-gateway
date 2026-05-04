@@ -27,6 +27,8 @@ pub struct CommandContext {
     pub hub_state: Arc<crate::state::HubState>,
     pub event_bus: Arc<crate::bus::EventBus>,
     pub system_nick: String,
+    /// Permission level of the user who invoked the command (0=regular, 1=registered, 2=OP, 3=admin).
+    pub caller_permission: i16,
 }
 
 /// Response from a command handler.
@@ -156,6 +158,14 @@ impl CommandEngine {
 
         let handler = self.commands.get(&resolved)?;
 
+        // Look up caller's permission from the database
+        let caller_permission = crate::db::queries::get_user(&db, nick)
+            .await
+            .ok()
+            .flatten()
+            .map(|u| u.permission)
+            .unwrap_or(0);
+
         let ctx = CommandContext {
             nick: nick.to_string(),
             args: args.to_string(),
@@ -165,6 +175,7 @@ impl CommandEngine {
             hub_state: self.hub_state.clone(),
             event_bus,
             system_nick: self.system_nick.clone(),
+            caller_permission,
         };
 
         Some(handler(ctx).await)
