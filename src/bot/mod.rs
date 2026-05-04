@@ -26,6 +26,7 @@ pub struct CommandContext {
     pub bot_registry: Arc<crate::state::BotRegistry>,
     pub hub_state: Arc<crate::state::HubState>,
     pub event_bus: Arc<crate::bus::EventBus>,
+    pub system_nick: String,
 }
 
 /// Response from a command handler.
@@ -40,8 +41,8 @@ pub enum CommandResponse {
     /// PM from bot nick to user (v3 BOT_PM).
     /// Used for: tell confirmation, gag notice to victim.
     BotPm(String),
-    /// PM from Hub-Security to user (v3 HUB_PM).
-    /// Used for: kick reason sent to victim (the ONLY thing that should be Hub-Security PM).
+    /// PM from system nick to user (v3 HUB_PM).
+    /// Used for: kick reason sent to victim.
     HubPm(String),
     /// Raw `$HubName` protocol string to all users (v3 HUB_PUBLIC).
     /// Used for: topic.
@@ -65,17 +66,20 @@ pub struct CommandEngine {
     aliases: HashMap<String, String>,
     /// Commands that an external bot has claimed (disabled for built-in handling).
     disabled: Arc<RwLock<std::collections::HashSet<String>>>,
-    /// Hub state — used to read hub_name for response nick.
+    /// Hub state — used for user info in command context.
     hub_state: Arc<crate::state::HubState>,
+    /// Nick used for system messages (from config).
+    system_nick: String,
 }
 
 impl CommandEngine {
-    pub fn new(hub_state: Arc<crate::state::HubState>) -> Self {
+    pub fn new(hub_state: Arc<crate::state::HubState>, system_nick: String) -> Self {
         let mut engine = Self {
             commands: HashMap::new(),
             aliases: HashMap::new(),
             disabled: Arc::new(RwLock::new(std::collections::HashSet::new())),
             hub_state,
+            system_nick,
         };
         commands::register_all(&mut engine);
         engine
@@ -160,6 +164,7 @@ impl CommandEngine {
             bot_registry,
             hub_state: self.hub_state.clone(),
             event_bus,
+            system_nick: self.system_nick.clone(),
         };
 
         Some(handler(ctx).await)
@@ -189,7 +194,7 @@ impl CommandEngine {
         nick: &str,
         hub_tx: &mpsc::Sender<String>,
     ) {
-        let system_nick = "Sentinel".to_string();
+        let system_nick = &self.system_nick;
 
         match response {
             CommandResponse::ChatAll(msg) => {

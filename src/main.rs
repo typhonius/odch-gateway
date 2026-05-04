@@ -178,7 +178,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create command engine (if DB is configured)
     let command_engine = if db_pool.is_some() {
-        Some(Arc::new(bot::CommandEngine::new(hub_state.clone())))
+        Some(Arc::new(bot::CommandEngine::new(hub_state.clone(), config.server.system_nick.clone())))
     } else {
         None
     };
@@ -213,8 +213,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let hub_tx = app_state.admin_tx.as_ref().clone();
         let hub_db = app_state.db_pool.clone();
         let hub_bot_reg = bot_registry.clone();
+        let hub_sys_nick = config.server.system_nick.clone();
         tokio::spawn(async move {
-            hub::socket::run(hub_config, bus, state, admin_rx, hub_tx, hub_db, hub_bot_reg).await;
+            hub::socket::run(hub_config, bus, state, admin_rx, hub_tx, hub_db, hub_bot_reg, hub_sys_nick).await;
         });
     }
 
@@ -256,8 +257,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let gr_state = hub_state.clone();
         let gr_tx = app_state.admin_tx.as_ref().clone();
         let gr_config = config.greeting.clone();
+        let gr_sys_nick = config.server.system_nick.clone();
         tokio::spawn(async move {
-            greeter::run(gr_bus, gr_state, gr_tx, gr_config).await;
+            greeter::run(gr_bus, gr_state, gr_tx, gr_config, gr_sys_nick).await;
         });
     }
 

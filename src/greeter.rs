@@ -17,6 +17,7 @@ pub async fn run(
     hub_state: Arc<HubState>,
     hub_tx: mpsc::Sender<String>,
     config: Option<GreetingConfig>,
+    system_nick: String,
 ) {
     let mut rx = event_bus.subscribe();
     tracing::info!("Connection greeter started");
@@ -46,7 +47,7 @@ pub async fn run(
 
                 // Send welcome message
                 let welcome = welcome_template.replace("{hub_name}", &hub_name);
-                let welcome_msg = format!("<Hub-Security> {}|", welcome);
+                let welcome_msg = format!("<{}> {}|", system_nick, welcome);
                 let cmd = serde_json::json!({
                     "type": "send_raw_to",
                     "nick": nick,

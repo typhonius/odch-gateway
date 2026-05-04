@@ -34,13 +34,14 @@ pub async fn run(
     hub_tx: mpsc::Sender<String>,
     db_pool: Option<DbPool>,
     bot_registry: std::sync::Arc<crate::state::BotRegistry>,
+    system_nick: String,
 ) {
     let mut delay = DEFAULT_RECONNECT_DELAY;
 
     loop {
         info!("Hub socket connecting to {}...", config.socket_path);
 
-        match connect_and_run(&config, &event_bus, &hub_state, &mut cmd_rx, &hub_tx, &db_pool, &bot_registry)
+        match connect_and_run(&config, &event_bus, &hub_state, &mut cmd_rx, &hub_tx, &db_pool, &bot_registry, &system_nick)
             .await
         {
             Ok(()) => {
@@ -73,6 +74,7 @@ async fn connect_and_run(
     hub_tx: &mpsc::Sender<String>,
     db_pool: &Option<DbPool>,
     bot_registry: &std::sync::Arc<crate::state::BotRegistry>,
+    system_nick: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut stream = UnixStream::connect(&config.socket_path).await?;
     info!("Hub socket connected to {}", config.socket_path);
@@ -141,7 +143,7 @@ async fn connect_and_run(
 
                             let json_bytes = &partial[4..4 + msg_len];
                             if let Ok(json_str) = std::str::from_utf8(json_bytes) {
-                                handle_event(json_str, event_bus, hub_state, hub_tx, db_pool, bot_registry).await;
+                                handle_event(json_str, event_bus, hub_state, hub_tx, db_pool, bot_registry, system_nick).await;
                             }
 
                             partial.drain(..4 + msg_len);
@@ -198,6 +200,7 @@ async fn handle_event(
     hub_tx: &mpsc::Sender<String>,
     db_pool: &Option<DbPool>,
     bot_registry: &std::sync::Arc<crate::state::BotRegistry>,
+    system_nick: &str,
 ) {
     let value: serde_json::Value = match serde_json::from_str(json_str) {
         Ok(v) => v,
@@ -233,7 +236,7 @@ async fn handle_event(
                 let cmd = serde_json::json!({
                     "type": "send_raw_to",
                     "nick": nick,
-                    "data": "<Hub-Security> You are gagged. No talking for you.|",
+                    "data": format!("<{}> You are gagged. No talking for you.|", system_nick),
                 });
                 let _ = hub_tx.send(cmd.to_string()).await;
             } else {
@@ -375,9 +378,9 @@ async fn handle_event(
                 }
             }
 
-            // Also reject "Sentinel" (built-in command bot) and OPChat
+            // Also reject the system nick and OPChat
             let nick_lower = nick.to_lowercase();
-            if nick_lower == "sentinel" || nick_lower == "opchat" {
+            if nick_lower == system_nick.to_lowercase() || nick_lower == "opchat" {
                 let cmd = serde_json::json!({
                     "type": "reject_user",
                     "nick": nick,

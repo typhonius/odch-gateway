@@ -433,7 +433,7 @@ async fn kick(ctx: CommandContext) -> CommandResponse {
     };
     let reason = parts.get(1).unwrap_or(&"").to_string();
 
-    // Send kick reason as Hub-Security PM to victim
+    // Send kick reason as PM to victim
     if !reason.is_empty() {
         let reason_pm = serde_json::json!({
             "type": "send_to",
@@ -472,8 +472,8 @@ async fn gag(ctx: CommandContext) -> CommandResponse {
         Ok(_) => {
             // Notify the victim via raw protocol message
             let victim_msg = format!(
-                "<Hub-Security> You have been gagged by {}: {}|",
-                ctx.nick, reason
+                "<{}> You have been gagged by {}: {}|",
+                ctx.system_nick, ctx.nick, reason
             );
             let cmd = serde_json::json!({
                 "type": "send_raw_to",

@@ -36,6 +36,14 @@ pub struct ServerConfig {
     pub bind_address: String,
     #[serde(default)]
     pub cors_origins: Vec<String>,
+    /// Nick used for system messages (command responses, gag notices, etc.).
+    /// Must not contain spaces. Default: "Sentinel"
+    #[serde(default = "default_system_nick")]
+    pub system_nick: String,
+}
+
+fn default_system_nick() -> String {
+    "Sentinel".to_string()
 }
 
 #[derive(Deserialize, Clone)]
